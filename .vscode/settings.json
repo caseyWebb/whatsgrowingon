@@ -1,6 +1,0 @@
-{
-    "elmLS.elmPath": "/nix/store/h4r4ddfvddw742fjn0zc4q4yzzqa07xj-elm-0.19.1/bin/elm",
-    "elmLS.elmReviewPath": "/nix/store/cnx9xb0jmqm3xsggs7nnajpsr2vrmlzh-elm-review-2.10.3/bin/elm-review",
-    "elmLS.elmFormatPath": "/nix/store/dd5maf2qcx2pclfr4cif0ljnz7jgyaid-elm-format-0.8.7/bin/elm-format",
-    "elmLS.elmTestPath": "/nix/store/h00gniszs0j45ysh21n6gzqh1fkadcjr-elm-test-0.19.1-revision12/bin/elm-test"
-}

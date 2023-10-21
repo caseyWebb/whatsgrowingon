@@ -2,12 +2,16 @@ module Types exposing (..)
 
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
+import Gen.Pages as Pages
+import Shared
 import Url exposing (Url)
 
 
 type alias FrontendModel =
-    { key : Key
-    , message : String
+    { url : Url
+    , key : Key
+    , shared : Shared.Model
+    , page : Pages.Model
     }
 
 
@@ -19,6 +23,8 @@ type alias BackendModel =
 type FrontendMsg
     = UrlClicked UrlRequest
     | UrlChanged Url
+    | Shared Shared.Msg
+    | Page Pages.Msg
     | NoOpFrontendMsg
 
 
