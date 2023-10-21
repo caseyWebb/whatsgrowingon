@@ -2,8 +2,11 @@ module Types exposing (..)
 
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
+import Data exposing (Zone)
 import Gen.Pages as Pages
+import GenericDict exposing (Dict)
 import Shared
+import Slug exposing (Slug)
 import Url exposing (Url)
 
 
@@ -16,7 +19,7 @@ type alias FrontendModel =
 
 
 type alias BackendModel =
-    { message : String
+    { zones : Dict Slug Zone
     }
 
 

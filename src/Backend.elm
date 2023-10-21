@@ -1,6 +1,6 @@
 module Backend exposing (..)
 
-import Html
+import GenericDict as Dict
 import Lamdera exposing (ClientId, SessionId)
 import Types exposing (..)
 
@@ -20,7 +20,8 @@ app =
 
 init : ( Model, Cmd BackendMsg )
 init =
-    ( { message = "Hello!" }
+    ( { zones = Dict.empty
+      }
     , Cmd.none
     )
 

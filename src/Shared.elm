@@ -8,9 +8,12 @@ module Shared exposing
     , view
     )
 
+import Data exposing (..)
+import GenericDict as Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (class, href, rel)
 import Request exposing (Request)
+import Slug exposing (Slug)
 import View exposing (View)
 
 
@@ -23,12 +26,14 @@ type alias Flags =
 
 
 type alias Model =
-    ()
+    { zones : Dict Slug Zone
+    }
 
 
 init : Request -> Flags -> ( Model, Cmd Msg )
-init _ json =
-    ( ()
+init _ _ =
+    ( { zones = Dict.empty
+      }
     , Cmd.none
     )
 

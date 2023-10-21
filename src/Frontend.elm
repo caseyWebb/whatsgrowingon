@@ -58,6 +58,7 @@ init url key =
     )
 
 
+scrollPageToTop : Cmd FrontendMsg
 scrollPageToTop =
     Task.perform (\_ -> NoOpFrontendMsg) (Browser.Dom.setViewport 0 0)
 
