@@ -2,6 +2,7 @@ module Backend exposing (..)
 
 import GenericDict as Dict
 import Lamdera exposing (ClientId, SessionId)
+import Shared
 import Types exposing (..)
 
 
@@ -35,6 +36,15 @@ update msg model =
 
 updateFromFrontend : SessionId -> ClientId -> ToBackend -> Model -> ( Model, Cmd BackendMsg )
 updateFromFrontend sessionId clientId msg model =
+    let
+        respond msg_ =
+            ( model, Lamdera.sendToFrontend clientId msg_ )
+    in
     case msg of
+        SharedToBackend toBackendMsg ->
+            case toBackendMsg of
+                Shared.FetchZones ->
+                    respond <| SharedToFrontend (Shared.GotZones model.zones)
+
         NoOpToBackend ->
             ( model, Cmd.none )

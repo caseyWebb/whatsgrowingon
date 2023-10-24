@@ -2,6 +2,8 @@ module Shared exposing
     ( Flags
     , Model
     , Msg(..)
+    , ToBackend(..)
+    , ToFrontend(..)
     , init
     , subscriptions
     , update
@@ -9,9 +11,10 @@ module Shared exposing
     )
 
 import Data exposing (..)
-import GenericDict as Dict exposing (Dict)
+import GenericDict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (class, href, rel)
+import Html.Attributes exposing (class)
+import RemoteData exposing (RemoteData)
 import Request exposing (Request)
 import Slug exposing (Slug)
 import View exposing (View)
@@ -26,15 +29,14 @@ type alias Flags =
 
 
 type alias Model =
-    { zones : Dict Slug Zone
+    { zones : RemoteData String (Dict Slug Zone)
     }
 
 
-init : Request -> Flags -> ( Model, Cmd Msg )
-init _ _ =
-    ( { zones = Dict.empty
-      }
-    , Cmd.none
+init : { toBackend : ToBackend -> Cmd msg } -> Request -> Flags -> ( Model, Cmd msg )
+init { toBackend } _ _ =
+    ( { zones = RemoteData.Loading }
+    , toBackend FetchZones
     )
 
 
@@ -43,12 +45,28 @@ init _ _ =
 
 
 type Msg
-    = Noop
+    = FromBackend ToFrontend
+    | Noop
+
+
+type ToBackend
+    = FetchZones
+
+
+type ToFrontend
+    = GotZones (Dict Slug Zone)
 
 
 update : Request -> Msg -> Model -> ( Model, Cmd Msg )
 update _ msg model =
     case msg of
+        FromBackend (GotZones zones) ->
+            ( { model
+                | zones = RemoteData.Success zones
+              }
+            , Cmd.none
+            )
+
         Noop ->
             ( model
             , Cmd.none

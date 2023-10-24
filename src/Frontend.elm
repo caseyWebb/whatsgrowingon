@@ -45,7 +45,11 @@ init : Url.Url -> Nav.Key -> ( Model, Cmd FrontendMsg )
 init url key =
     let
         ( shared, sharedCmd ) =
-            Shared.init (Request.create () url key) ()
+            Shared.init
+                { toBackend = Lamdera.sendToBackend << SharedToBackend
+                }
+                (Request.create () url key)
+                ()
 
         ( page, effect ) =
             Pages.init (Route.fromUrl url) shared url key
@@ -128,6 +132,13 @@ update msg model =
 updateFromBackend : ToFrontend -> Model -> ( Model, Cmd FrontendMsg )
 updateFromBackend msg model =
     case msg of
+        SharedToFrontend msg_ ->
+            let
+                ( updatedSharedModel, sharedCmd ) =
+                    Shared.update (Request.create () model.url model.key) (Shared.FromBackend msg_) model.shared
+            in
+            ( { model | shared = updatedSharedModel }, Cmd.map Shared sharedCmd )
+
         NoOpToFrontend ->
             ( model, Cmd.none )
 

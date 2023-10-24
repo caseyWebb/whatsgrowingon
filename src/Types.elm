@@ -32,7 +32,8 @@ type FrontendMsg
 
 
 type ToBackend
-    = NoOpToBackend
+    = SharedToBackend Shared.ToBackend
+    | NoOpToBackend
 
 
 type BackendMsg
@@ -40,4 +41,5 @@ type BackendMsg
 
 
 type ToFrontend
-    = NoOpToFrontend
+    = SharedToFrontend Shared.ToFrontend
+    | NoOpToFrontend

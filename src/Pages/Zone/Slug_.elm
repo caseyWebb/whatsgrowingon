@@ -5,6 +5,7 @@ import Gen.Params.Zone.Slug_ exposing (Params)
 import GenericDict as Dict
 import Html
 import Page
+import RemoteData exposing (RemoteData(..))
 import Request
 import Shared
 import Slug exposing (Slug)
@@ -18,56 +19,76 @@ page shared req =
             Slug.fromString req.params.slug
     in
     Page.element
-        { init = init shared slug
-        , update = update shared
-        , view = view shared
+        { init = init slug shared
+        , update = update
+        , view = view
         , subscriptions = \_ -> Sub.none
         }
 
 
-type Model
-    = Loading
-    | Ready Data
-
-
-type alias Data =
-    { zone : Zone
+type alias Model =
+    { isNew : Bool
+    , zone : RemoteData String Zone
     }
 
 
-init : Shared.Model -> Slug -> ( Model, Cmd Msg )
-init shared slug =
+init : Slug -> Shared.Model -> ( Model, Cmd Msg )
+init slug shared =
     if Slug.isNew slug then
-        ( Ready { zone = { slug = slug, name = "", plantings = [] } }, Cmd.none )
+        ( { isNew = True
+          , zone =
+                RemoteData.Success
+                    { slug = slug
+                    , name = ""
+                    , plantings = []
+                    }
+          }
+        , Cmd.none
+        )
 
     else
-        case Dict.get (Slug.map identity) slug shared.zones of
-            Just zone ->
-                ( Ready { zone = zone }, Cmd.none )
-
-            Nothing ->
-                ( Loading, Cmd.none )
+        ( { isNew = False
+          , zone =
+                shared.zones
+                    |> RemoteData.andThen
+                        (Dict.get (Slug.map identity) slug
+                            >> Maybe.map RemoteData.Success
+                            >> Maybe.withDefault (RemoteData.Failure "Not Found")
+                        )
+          }
+        , Cmd.none
+        )
 
 
 type Msg
     = NoOp
 
 
-update : Shared.Model -> Msg -> Model -> ( Model, Cmd Msg )
-update shared msg model =
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
     case msg of
         NoOp ->
             ( model, Cmd.none )
 
 
-view : Shared.Model -> Model -> View Msg
-view shared model =
-    case model of
-        Loading ->
+view : Model -> View Msg
+view model =
+    case model.zone of
+        RemoteData.NotAsked ->
             viewLoading
 
-        Ready data_ ->
-            viewZone data_.zone
+        RemoteData.Loading ->
+            viewLoading
+
+        RemoteData.Failure _ ->
+            viewError
+
+        RemoteData.Success zone ->
+            if model.isNew then
+                viewNewZone
+
+            else
+                viewZone zone
 
 
 viewLoading : View Msg
@@ -93,5 +114,15 @@ viewZone zone =
     { title = "Zone"
     , body =
         [ Html.h1 [] [ Html.text "Zone" ]
+        ]
+    }
+
+
+viewError : View Msg
+viewError =
+    { title = "Error"
+    , body =
+        [ Html.h1 [] [ Html.text "Error" ]
+        , Html.p [] [ Html.text "Something went wrong" ]
         ]
     }
