@@ -36,7 +36,7 @@ app =
         , onUrlChange = UrlChanged
         , update = update
         , updateFromBackend = updateFromBackend
-        , subscriptions = \m -> Sub.none
+        , subscriptions = \_ -> Sub.none
         , view = view
         }
 
@@ -49,7 +49,6 @@ init url key =
                 { toBackend = Lamdera.sendToBackend << SharedToBackend
                 }
                 (Request.create () url key)
-                ()
 
         ( page, effect ) =
             Pages.init (Route.fromUrl url) shared url key
@@ -98,7 +97,12 @@ update msg model =
         Shared sharedMsg ->
             let
                 ( shared, sharedCmd ) =
-                    Shared.update (Request.create () model.url model.key) sharedMsg model.shared
+                    Shared.update
+                        { toBackend = Lamdera.sendToBackend << SharedToBackend
+                        }
+                        (Request.create () model.url model.key)
+                        sharedMsg
+                        model.shared
 
                 ( page, effect ) =
                     Pages.init (Route.fromUrl model.url) shared model.url model.key
@@ -135,7 +139,12 @@ updateFromBackend msg model =
         SharedToFrontend msg_ ->
             let
                 ( updatedSharedModel, sharedCmd ) =
-                    Shared.update (Request.create () model.url model.key) (Shared.FromBackend msg_) model.shared
+                    Shared.update
+                        { toBackend = Lamdera.sendToBackend << SharedToBackend
+                        }
+                        (Request.create () model.url model.key)
+                        (Shared.fromBackend msg_)
+                        model.shared
             in
             ( { model | shared = updatedSharedModel }, Cmd.map Shared sharedCmd )
 

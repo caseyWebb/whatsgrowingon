@@ -1,9 +1,10 @@
 module Shared exposing
-    ( Flags
-    , Model
-    , Msg(..)
+    ( Model
+    , Msg
     , ToBackend(..)
     , ToFrontend(..)
+    , fetchZones
+    , fromBackend
     , init
     , subscriptions
     , update
@@ -20,12 +21,18 @@ import Slug exposing (Slug)
 import View exposing (View)
 
 
+fetchZones : Msg
+fetchZones =
+    ToBackend FetchZones
+
+
+fromBackend : ToFrontend -> Msg
+fromBackend =
+    FromBackend
+
+
 
 -- INIT
-
-
-type alias Flags =
-    ()
 
 
 type alias Model =
@@ -33,10 +40,10 @@ type alias Model =
     }
 
 
-init : { toBackend : ToBackend -> Cmd msg } -> Request -> Flags -> ( Model, Cmd msg )
-init { toBackend } _ _ =
-    ( { zones = RemoteData.Loading }
-    , toBackend FetchZones
+init : { toBackend : ToBackend -> Cmd msg } -> Request -> ( Model, Cmd msg )
+init _ _ =
+    ( { zones = RemoteData.NotAsked }
+    , Cmd.none
     )
 
 
@@ -46,6 +53,7 @@ init { toBackend } _ _ =
 
 type Msg
     = FromBackend ToFrontend
+    | ToBackend ToBackend
     | Noop
 
 
@@ -57,14 +65,17 @@ type ToFrontend
     = GotZones (Dict Slug Zone)
 
 
-update : Request -> Msg -> Model -> ( Model, Cmd Msg )
-update _ msg model =
+update : { toBackend : ToBackend -> Cmd msg } -> Request -> Msg -> Model -> ( Model, Cmd msg )
+update { toBackend } _ msg model =
     case msg of
         FromBackend (GotZones zones) ->
-            ( { model
-                | zones = RemoteData.Success zones
-              }
+            ( { model | zones = RemoteData.Success zones }
             , Cmd.none
+            )
+
+        ToBackend (FetchZones as toBackendMsg) ->
+            ( { model | zones = RemoteData.Loading }
+            , toBackend toBackendMsg
             )
 
         Noop ->
