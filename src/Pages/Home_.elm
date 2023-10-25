@@ -10,6 +10,7 @@ import Html.Styled as Html
 import Html.Styled.Attributes as Attrs
 import Html.Styled.Events exposing (onBlur, onClick, onInput)
 import Json.Decode as Decode
+import Modal
 import Page
 import RemoteData exposing (RemoteData(..))
 import Request exposing (Request)
@@ -25,6 +26,7 @@ type alias Model =
 type Msg
     = AddZone
     | UpdateZone Bool Zone
+    | ShowNewPlantingModal
 
 
 page : Shared.Model -> Request -> Page.With Model Msg
@@ -50,6 +52,9 @@ update msg model =
 
         UpdateZone save zone ->
             ( model, Effect.fromShared (Shared.updateZone save zone) )
+
+        ShowNewPlantingModal ->
+            ( model, Effect.fromShared (Shared.showModal Modal.AddPlantingModal) )
 
 
 view : Shared.Model -> Model -> View Msg
@@ -144,7 +149,8 @@ view shared _ =
                                             ]
                                         ]
                                     , Html.button
-                                        [ Attrs.css
+                                        [ onClick ShowNewPlantingModal
+                                        , Attrs.css
                                             [ Css.fontWeight Css.bold
                                             , Css.fontSize (Css.px 18)
                                             , Css.backgroundColor Css.inherit
