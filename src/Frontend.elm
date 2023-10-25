@@ -7,6 +7,7 @@ import Effect
 import Gen.Model
 import Gen.Pages as Pages
 import Gen.Route as Route
+import Html.Styled exposing (Html)
 import Lamdera
 import Request
 import Shared
@@ -161,3 +162,4 @@ view model =
         , toMsg = Shared
         }
         model.shared
+        |> View.toBrowserDocument

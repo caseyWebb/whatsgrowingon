@@ -14,8 +14,8 @@ module Shared exposing
 
 import Data exposing (..)
 import GenericDict as Dict exposing (Dict)
-import Html exposing (..)
-import Html.Attributes exposing (class)
+import Html.Styled as Html exposing (..)
+import Html.Styled.Attributes as Attrs exposing (class)
 import Random
 import RemoteData exposing (RemoteData)
 import Request exposing (Request)

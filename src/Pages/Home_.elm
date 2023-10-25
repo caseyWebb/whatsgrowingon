@@ -4,8 +4,8 @@ import Data exposing (..)
 import Effect exposing (Effect)
 import Gen.Route as Route
 import GenericDict as Dict
-import Html exposing (Attribute)
-import Html.Events exposing (onClick)
+import Html.Styled as Html exposing (Attribute)
+import Html.Styled.Events exposing (onClick)
 import Page exposing (Page)
 import RemoteData exposing (RemoteData(..))
 import Request exposing (Request)

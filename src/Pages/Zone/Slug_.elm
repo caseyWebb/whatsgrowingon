@@ -3,7 +3,7 @@ module Pages.Zone.Slug_ exposing (Model, Msg, page)
 import Data exposing (Zone)
 import Gen.Params.Zone.Slug_ exposing (Params)
 import GenericDict as Dict
-import Html
+import Html.Styled as Html
 import Page
 import RemoteData exposing (RemoteData(..))
 import Request
