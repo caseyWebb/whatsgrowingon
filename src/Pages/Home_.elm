@@ -54,7 +54,11 @@ update msg model =
             ( model, Effect.fromShared (Shared.updateZone save zone) )
 
         ShowNewPlantingModal ->
-            ( model, Effect.fromShared (Shared.showModal Modal.AddPlantingModal) )
+            ( model, Effect.none )
+
+
+
+-- ( model, Effect.fromShared (Shared.showModal Modal.AddPlantingModal) )
 
 
 view : Shared.Model -> Model -> View Msg
@@ -227,4 +231,5 @@ view shared _ =
                     ]
                     [ Html.text "Add a new zone" ]
                 ]
+    , modal = Nothing
     }

@@ -6,7 +6,6 @@ module Shared exposing
     , addZone
     , fromBackend
     , init
-    , showModal
     , subscriptions
     , update
     , updateZone
@@ -14,12 +13,12 @@ module Shared exposing
     )
 
 import Css
-import Css.Global
 import Css.Media
 import Data exposing (..)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
 import Html.Styled.Attributes as Attrs
+import Maybe.Extra as Maybe
 import Modal exposing (Modal)
 import Random
 import RemoteData exposing (RemoteData)
@@ -38,11 +37,6 @@ updateZone =
     UpdateZone
 
 
-showModal : Modal -> Msg
-showModal =
-    ShowModal
-
-
 fromBackend : ToFrontend -> Msg
 fromBackend =
     FromBackend
@@ -54,14 +48,12 @@ fromBackend =
 
 type alias Model =
     { zones : RemoteData String (Dict Slug Zone)
-    , modal : Maybe Modal
     }
 
 
 init : { toBackend : ToBackend -> Cmd msg } -> Request -> ( Model, Cmd msg )
 init { toBackend } _ =
     ( { zones = RemoteData.Loading
-      , modal = Nothing
       }
     , toBackend <| FetchZones
     )
@@ -76,8 +68,6 @@ type Msg
     | AddZone
     | UpdateZone Bool Zone
     | GotNewSlug Slug
-    | ShowModal Modal
-    | CloseModal
 
 
 type ToBackend
@@ -133,16 +123,6 @@ update { toBackend } _ msg model =
                 Cmd.none
             )
 
-        ShowModal modal ->
-            ( { model | modal = Just modal }
-            , Cmd.none
-            )
-
-        CloseModal ->
-            ( { model | modal = Nothing }
-            , Cmd.none
-            )
-
 
 subscriptions : Request -> Model -> Sub Msg
 subscriptions _ _ =
@@ -159,40 +139,7 @@ view :
     -> Model
     -> View msg
 view req { page, toMsg } model =
-    let
-        hasModal =
-            Maybe.map (always True) model.modal |> Maybe.withDefault False
-    in
-    { title =
-        page.title
-    , body =
-        [ Html.div
-            [ Attrs.css
-                [ Css.fontFamily Css.sansSerif
-                , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                    [ Css.backgroundColor (Css.hex "111")
-                    , Css.color (Css.hex "ccc")
-                    ]
-                ]
-            ]
-            [ Html.div
-                (Attrs.css
-                    [ Css.width (Css.pct 100)
-                    , Css.minHeight (Css.vh 100)
-                    , Css.displayFlex
-                    , Css.flexDirection Css.column
-                    , Css.alignItems Css.center
-                    ]
-                    :: (if hasModal then
-                            [ Attrs.attribute "inert" "true" ]
-
-                        else
-                            []
-                       )
-                )
-                page.body
-            , Maybe.map (Modal.view { closeModal = toMsg CloseModal }) model.modal
-                |> Maybe.withDefault (Html.text "")
-            ]
-        ]
+    { title = page.title
+    , body = page.body
+    , modal = page.modal
     }

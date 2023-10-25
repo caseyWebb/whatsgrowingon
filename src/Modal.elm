@@ -6,11 +6,11 @@ import Html.Styled.Attributes as Attrs
 import Html.Styled.Events exposing (onClick)
 
 
-type Modal
-    = AddPlantingModal
+type Modal modal
+    = PageModal modal
 
 
-view : { closeModal : msg } -> Modal -> Html msg
+view : { closeModal : msg } -> Modal modal -> Html msg
 view config modal =
     Html.div
         [ Attrs.css
@@ -25,10 +25,6 @@ view config modal =
             ]
         ]
         [ viewBackdrop config
-        , viewModal config <|
-            case modal of
-                AddPlantingModal ->
-                    viewAddPlantingModal
         ]
 
 
