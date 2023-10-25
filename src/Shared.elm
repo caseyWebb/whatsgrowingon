@@ -4,18 +4,21 @@ module Shared exposing
     , ToBackend(..)
     , ToFrontend(..)
     , addZone
-    , fetchZones
     , fromBackend
     , init
     , subscriptions
     , update
+    , updateZone
     , view
     )
 
+import Css
+import Css.Global
+import Css.Media
 import Data exposing (..)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
-import Html.Styled.Attributes as Attrs exposing (class)
+import Html.Styled.Attributes as Attrs
 import Random
 import RemoteData exposing (RemoteData)
 import Request exposing (Request)
@@ -23,14 +26,14 @@ import Slug exposing (Slug)
 import View exposing (View)
 
 
-fetchZones : Msg
-fetchZones =
-    ToBackend FetchZones
-
-
 addZone : Msg
 addZone =
     AddZone
+
+
+updateZone : Bool -> Zone -> Msg
+updateZone =
+    UpdateZone
 
 
 fromBackend : ToFrontend -> Msg
@@ -48,9 +51,9 @@ type alias Model =
 
 
 init : { toBackend : ToBackend -> Cmd msg } -> Request -> ( Model, Cmd msg )
-init _ _ =
-    ( { zones = RemoteData.NotAsked }
-    , Cmd.none
+init { toBackend } _ =
+    ( { zones = RemoteData.Loading }
+    , toBackend <| FetchZones
     )
 
 
@@ -60,14 +63,15 @@ init _ _ =
 
 type Msg
     = FromBackend ToFrontend
-    | ToBackend ToBackend
     | AddZone
+    | UpdateZone Bool Zone
     | GotNewSlug Slug
     | Noop
 
 
 type ToBackend
     = FetchZones
+    | SaveZone Zone
 
 
 type ToFrontend
@@ -82,35 +86,40 @@ update { toBackend } _ msg model =
             , Cmd.none
             )
 
-        ToBackend (FetchZones as toBackendMsg) ->
-            ( { model | zones = RemoteData.Loading }
-            , toBackend toBackendMsg
-            )
-
         AddZone ->
             ( model
             , Random.generate GotNewSlug Slug.random
             )
 
         GotNewSlug slug ->
+            let
+                zone =
+                    Slug.map
+                        (\str ->
+                            { slug = slug
+                            , name = str
+                            , plantings = []
+                            }
+                        )
+                        slug
+            in
             ( { model
                 | zones =
-                    RemoteData.map
-                        (Dict.insert (Slug.map identity)
-                            slug
-                            (Slug.map
-                                (\str ->
-                                    { slug = slug
-                                    , name = str
-                                    , plantings = []
-                                    }
-                                )
-                                slug
-                            )
-                        )
-                        model.zones
+                    RemoteData.map (Dict.insert (Slug.map identity) slug zone) model.zones
               }
-            , Cmd.none
+            , toBackend (SaveZone zone)
+            )
+
+        UpdateZone save zone ->
+            ( { model
+                | zones =
+                    RemoteData.map (Dict.insert (Slug.map identity) zone.slug zone) model.zones
+              }
+            , if save then
+                toBackend (SaveZone zone)
+
+              else
+                Cmd.none
             )
 
         Noop ->
@@ -134,11 +143,31 @@ view :
     -> Model
     -> View msg
 view req { page, toMsg } model =
+    let
+        theme =
+            Css.Global.body []
+    in
     { title =
         page.title
     , body =
-        [ div [ class "layout" ]
-            [ div [ class "page" ] page.body
+        [ Css.Global.global
+            [ Css.Global.body
+                [ Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                    [ Css.backgroundColor (Css.hex "111")
+                    , Css.color (Css.hex "ccc")
+                    ]
+                ]
             ]
+        , Html.div
+            [ Attrs.css
+                [ Css.width (Css.pct 100)
+                , Css.displayFlex
+                , Css.flexDirection Css.column
+                , Css.alignItems Css.center
+                , Css.fontFamily Css.sansSerif
+                , Css.textTransform Css.lowercase
+                ]
+            ]
+            page.body
         ]
     }
