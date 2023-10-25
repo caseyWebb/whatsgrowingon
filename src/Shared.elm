@@ -167,28 +167,32 @@ view req { page, toMsg } model =
         page.title
     , body =
         [ Html.div
-            (Attrs.css
-                [ Css.width (Css.pct 100)
-                , Css.minHeight (Css.vh 100)
-                , Css.displayFlex
-                , Css.flexDirection Css.column
-                , Css.alignItems Css.center
-                , Css.fontFamily Css.sansSerif
-                , Css.textTransform Css.lowercase
+            [ Attrs.css
+                [ Css.fontFamily Css.sansSerif
                 , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
                     [ Css.backgroundColor (Css.hex "111")
                     , Css.color (Css.hex "ccc")
                     ]
                 ]
-                :: (if hasModal then
-                        [ Attrs.attribute "inert" "true" ]
+            ]
+            [ Html.div
+                (Attrs.css
+                    [ Css.width (Css.pct 100)
+                    , Css.minHeight (Css.vh 100)
+                    , Css.displayFlex
+                    , Css.flexDirection Css.column
+                    , Css.alignItems Css.center
+                    ]
+                    :: (if hasModal then
+                            [ Attrs.attribute "inert" "true" ]
 
-                    else
-                        []
-                   )
-            )
-            page.body
-        , Maybe.map (Modal.view { closeModal = toMsg CloseModal }) model.modal
-            |> Maybe.withDefault (Html.text "")
+                        else
+                            []
+                       )
+                )
+                page.body
+            , Maybe.map (Modal.view { closeModal = toMsg CloseModal }) model.modal
+                |> Maybe.withDefault (Html.text "")
+            ]
         ]
     }
