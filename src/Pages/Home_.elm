@@ -184,7 +184,7 @@ view shared _ =
                                     ]
                                 ]
                         )
-                        (Dict.values zones)
+                        (Dict.values zones |> List.sortBy .index)
                     )
                 , Html.button
                     [ onClick AddZone

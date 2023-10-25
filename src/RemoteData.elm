@@ -27,3 +27,19 @@ andThen f remoteData =
 map : (a -> b) -> RemoteData err a -> RemoteData err b
 map f =
     andThen (Success << f)
+
+
+toMaybe : RemoteData err a -> Maybe a
+toMaybe remoteData =
+    case remoteData of
+        NotAsked ->
+            Nothing
+
+        Loading ->
+            Nothing
+
+        Failure _ ->
+            Nothing
+
+        Success a ->
+            Just a

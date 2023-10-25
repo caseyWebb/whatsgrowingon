@@ -26,13 +26,15 @@ app =
         { init = init
         , update = update
         , updateFromFrontend = updateFromFrontend
-        , subscriptions = \m -> Sub.none
+        , subscriptions = \_ -> Sub.none
         }
 
 
 init : ( Model, Cmd Msg )
 init =
     ( { zones = Dict.empty
+      , crops = Dict.empty
+      , varieties = Dict.empty
       }
     , Cmd.none
     )

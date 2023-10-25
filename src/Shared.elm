@@ -79,7 +79,7 @@ type Msg
     = FromBackend ToFrontend
     | AddZone
     | UpdateZone Bool Zone
-    | GotNewSlug Slug
+    | CreateZoneWithSlug Slug
     | ShowModal Modal
     | CloseModal
 
@@ -103,20 +103,18 @@ update { toBackend } _ msg model =
 
         AddZone ->
             ( model
-            , Random.generate GotNewSlug Slug.random
+            , Random.generate CreateZoneWithSlug Slug.random
             )
 
-        GotNewSlug slug ->
+        CreateZoneWithSlug slug ->
             let
+                index =
+                    RemoteData.map Dict.size model.zones
+                        |> RemoteData.toMaybe
+                        |> Maybe.withDefault 0
+
                 zone =
-                    Slug.map
-                        (\str ->
-                            { slug = slug
-                            , name = str
-                            , plantings = []
-                            }
-                        )
-                        slug
+                    Slug.map (\str -> Zone slug index str []) slug
             in
             ( { model
                 | zones =

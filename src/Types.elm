@@ -2,7 +2,7 @@ module Types exposing (..)
 
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
-import Data exposing (Zone)
+import Data exposing (..)
 import Gen.Pages as Pages
 import GenericDict exposing (Dict)
 import Shared
@@ -20,6 +20,8 @@ type alias FrontendModel =
 
 type alias BackendModel =
     { zones : Dict Slug Zone
+    , crops : Dict Slug Crop
+    , varieties : Dict Slug Variety
     }
 
 
