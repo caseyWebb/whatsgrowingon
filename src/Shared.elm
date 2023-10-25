@@ -3,6 +3,7 @@ module Shared exposing
     , Msg
     , ToBackend(..)
     , ToFrontend(..)
+    , addZone
     , fetchZones
     , fromBackend
     , init
@@ -12,9 +13,10 @@ module Shared exposing
     )
 
 import Data exposing (..)
-import GenericDict exposing (Dict)
+import GenericDict as Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (class)
+import Random
 import RemoteData exposing (RemoteData)
 import Request exposing (Request)
 import Slug exposing (Slug)
@@ -24,6 +26,11 @@ import View exposing (View)
 fetchZones : Msg
 fetchZones =
     ToBackend FetchZones
+
+
+addZone : Msg
+addZone =
+    AddZone
 
 
 fromBackend : ToFrontend -> Msg
@@ -54,6 +61,8 @@ init _ _ =
 type Msg
     = FromBackend ToFrontend
     | ToBackend ToBackend
+    | AddZone
+    | GotNewSlug Slug
     | Noop
 
 
@@ -65,7 +74,7 @@ type ToFrontend
     = GotZones (Dict Slug Zone)
 
 
-update : { toBackend : ToBackend -> Cmd msg } -> Request -> Msg -> Model -> ( Model, Cmd msg )
+update : { toBackend : ToBackend -> Cmd Msg } -> Request -> Msg -> Model -> ( Model, Cmd Msg )
 update { toBackend } _ msg model =
     case msg of
         FromBackend (GotZones zones) ->
@@ -76,6 +85,32 @@ update { toBackend } _ msg model =
         ToBackend (FetchZones as toBackendMsg) ->
             ( { model | zones = RemoteData.Loading }
             , toBackend toBackendMsg
+            )
+
+        AddZone ->
+            ( model
+            , Random.generate GotNewSlug Slug.random
+            )
+
+        GotNewSlug slug ->
+            ( { model
+                | zones =
+                    RemoteData.map
+                        (Dict.insert (Slug.map identity)
+                            slug
+                            (Slug.map
+                                (\str ->
+                                    { slug = slug
+                                    , name = str
+                                    , plantings = []
+                                    }
+                                )
+                                slug
+                            )
+                        )
+                        model.zones
+              }
+            , Cmd.none
             )
 
         Noop ->

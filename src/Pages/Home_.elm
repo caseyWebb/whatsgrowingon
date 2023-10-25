@@ -3,10 +3,11 @@ module Pages.Home_ exposing (Model, Msg, page)
 import Data exposing (..)
 import Effect exposing (Effect)
 import Gen.Route as Route
+import GenericDict as Dict
 import Html exposing (Attribute)
 import Html.Events exposing (onClick)
 import Page exposing (Page)
-import RemoteData exposing (RemoteData)
+import RemoteData exposing (RemoteData(..))
 import Request exposing (Request)
 import Shared
 import Slug
@@ -26,30 +27,41 @@ page shared req =
     Page.advanced
         { init = init
         , update = update
-        , view = view
+        , view = view shared
         , subscriptions = \_ -> Sub.none
         }
 
 
 init : ( Model, Effect Msg )
 init =
-    ( (), Effect.fromShared <| Shared.fetchZones )
+    ( (), Effect.fromShared Shared.fetchZones )
 
 
 update : Msg -> Model -> ( Model, Effect Msg )
 update msg model =
     case msg of
         AddZone ->
-            ( model, Effect.none )
+            ( model, Effect.fromShared Shared.addZone )
 
 
-view : Model -> View msg
-view _ =
+view : Shared.Model -> Model -> View Msg
+view shared _ =
     { title = "What's growing on!?"
     , body =
-        [ Html.h1 [] [ Html.text "What's growing on!?" ]
-        , Html.p [] [ Html.text "A simple app to help you keep track of what's growing in your garden." ]
+        case shared.zones of
+            NotAsked ->
+                [ Html.p [] [ Html.text "Loading..." ] ]
 
-        -- , Html.button [ onClick AddZone ] [ Html.text "Add a new zone" ]
-        ]
+            Loading ->
+                [ Html.p [] [ Html.text "Loading..." ] ]
+
+            Failure err ->
+                [ Html.p [] [ Html.text <| "Error: " ++ err ] ]
+
+            Success zones ->
+                [ Html.h1 [] [ Html.text "What's growing on!?" ]
+                , Html.p [] [ Html.text "A simple app to help you keep track of what's growing in your garden." ]
+                , Html.ul [] (List.map (\zone -> Html.text zone.name) (Dict.values zones))
+                , Html.button [ onClick AddZone ] [ Html.text "Add a new zone" ]
+                ]
     }
