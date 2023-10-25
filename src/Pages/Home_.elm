@@ -81,16 +81,10 @@ view shared _ =
                         (\zone ->
                             Html.li
                                 [ Attrs.css
-                                    [ Css.height (Css.em 6)
-                                    , Css.border3 (Css.px 1) Css.solid (Css.hex "303030")
-                                    , Css.displayFlex
-                                    , Css.flexDirection Css.row
-                                    , Css.alignItems Css.center
-                                    , Css.padding2 Css.zero (Css.em 1)
-                                    , Css.borderRadius (Css.px 4)
-                                    , Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                                        [ Css.backgroundColor (Css.hex "252525")
-                                        ]
+                                    [ Css.displayFlex
+                                    , Css.flexDirection Css.column
+                                    , Css.property "gap" "1em"
+                                    , Css.padding2 (Css.em 1) (Css.em 1)
                                     ]
                                 ]
                                 [ Html.input
@@ -99,16 +93,93 @@ view shared _ =
                                         [ Css.backgroundColor Css.inherit
                                         , Css.color Css.inherit
                                         , Css.fontWeight Css.bold
-                                        , Css.fontSize (Css.px 24)
+                                        , Css.fontSize (Css.px 14)
                                         , Css.border Css.zero
                                         , Css.focus [ Css.outline Css.none ]
-
-                                        -- , Css.flexGrow (Css.int 1)
                                         ]
                                     , onInput (\name -> UpdateZone False { zone | name = name })
                                     , onBlur (UpdateZone True zone)
                                     ]
                                     []
+                                , Html.div
+                                    [ Attrs.css
+                                        [ Css.displayFlex
+                                        , Css.justifyContent Css.spaceBetween
+                                        , Css.property "gap" "10px"
+                                        ]
+                                    ]
+                                    [ Html.div
+                                        [ Attrs.css
+                                            [ Css.color (Css.hex "fff")
+                                            , Css.backgroundColor (Css.hex "4c1010")
+                                            , Css.padding (Css.px 20)
+                                            , Css.borderRadius (Css.px 4)
+                                            ]
+                                        ]
+                                        [ Html.div
+                                            [ Attrs.css
+                                                [ Css.displayFlex
+                                                , Css.property "gap" "10px"
+                                                , Css.alignItems Css.center
+                                                ]
+                                            ]
+                                            [ Html.span
+                                                [ Attrs.css
+                                                    [ Css.textTransform Css.uppercase
+                                                    , Css.fontWeight Css.bold
+                                                    , Css.fontSize (Css.px 18)
+                                                    ]
+                                                ]
+                                                [ Html.text "Beets" ]
+                                            , Html.span
+                                                [ Attrs.css
+                                                    [ Css.fontSize (Css.px 12)
+                                                    , Css.displayFlex
+                                                    , Css.flexDirection Css.column
+                                                    ]
+                                                ]
+                                                [ Html.span [] [ Html.text "Formanova" ]
+                                                , Html.span [] [ Html.text "2021-04-1" ]
+                                                ]
+                                            ]
+                                        ]
+                                    , Html.button
+                                        [ Attrs.css
+                                            [ Css.fontWeight Css.bold
+                                            , Css.fontSize (Css.px 18)
+                                            , Css.backgroundColor Css.inherit
+                                            , Css.flexGrow (Css.int 1)
+                                            , Css.border3 (Css.px 1) Css.solid (Css.hex "333")
+                                            , Css.padding2 (Css.em 0.5) (Css.em 1)
+                                            , Css.outline Css.none
+                                            , Css.borderRadius (Css.px 4)
+                                            , Css.color (Css.hex "000")
+                                            , Css.hover
+                                                [ Css.borderColor (Css.hex "000")
+                                                , Css.color (Css.hex "fff")
+                                                ]
+                                            , Css.focus
+                                                [ Css.borderColor (Css.hex "000")
+                                                , Css.color (Css.hex "fff")
+                                                , Css.outline3 (Css.px 5) Css.solid (Css.hex "000")
+                                                , Css.outlineOffset (Css.px 5)
+                                                ]
+                                            , Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                                                [ Css.color (Css.hex "fff")
+                                                , Css.hover
+                                                    [ Css.borderColor (Css.hex "fff")
+                                                    , Css.color (Css.hex "fff")
+                                                    ]
+                                                , Css.focus
+                                                    [ Css.borderColor (Css.hex "fff")
+                                                    , Css.color (Css.hex "fff")
+                                                    , Css.outlineColor (Css.hex "fff")
+                                                    ]
+                                                ]
+                                            ]
+                                        ]
+                                        [ Html.text "+" ]
+                                    ]
                                 ]
                         )
                         (Dict.values zones)
@@ -127,12 +198,10 @@ view shared _ =
                         , Css.hover
                             [ Css.borderColor (Css.hex "000")
                             , Css.color (Css.hex "fff")
-                            , Css.backgroundColor (Css.hex "000")
                             ]
                         , Css.focus
                             [ Css.borderColor (Css.hex "000")
                             , Css.color (Css.hex "fff")
-                            , Css.backgroundColor (Css.hex "000")
                             , Css.outline3 (Css.px 5) Css.solid (Css.hex "000")
                             , Css.outlineOffset (Css.px 5)
                             ]
