@@ -1,6 +1,5 @@
 module Pages.Home_ exposing (Model, Msg, page)
 
-import Browser.Events exposing (onKeyDown, onKeyUp)
 import Css
 import Css.Media as Media
 import Data exposing (..)
@@ -9,13 +8,10 @@ import GenericDict as Dict
 import Html.Styled as Html
 import Html.Styled.Attributes as Attrs
 import Html.Styled.Events exposing (onBlur, onClick, onInput)
-import Json.Decode as Decode
-import Modal
 import Page
 import RemoteData exposing (RemoteData(..))
 import Request exposing (Request)
 import Shared
-import Slug exposing (Slug)
 import View exposing (View)
 
 
@@ -30,7 +26,7 @@ type Msg
 
 
 page : Shared.Model -> Request -> Page.With Model Msg
-page shared req =
+page shared _ =
     Page.advanced
         { init = init
         , update = update
@@ -54,11 +50,7 @@ update msg model =
             ( model, Effect.fromShared (Shared.updateZone save zone) )
 
         ShowNewPlantingModal ->
-            ( model, Effect.none )
-
-
-
--- ( model, Effect.fromShared (Shared.showModal Modal.AddPlantingModal) )
+            ( model, Effect.fromShared (Shared.showModal Shared.AddPlantingModal) )
 
 
 view : Shared.Model -> Model -> View Msg
@@ -231,5 +223,4 @@ view shared _ =
                     ]
                     [ Html.text "Add a new zone" ]
                 ]
-    , modal = Nothing
     }

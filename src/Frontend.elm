@@ -154,12 +154,10 @@ updateFromBackend msg model =
 
 
 view : Model -> Browser.Document FrontendMsg
-view model =
-    Shared.view (Request.create () model.url model.key)
-        { page =
-            Pages.view model.page model.shared model.url model.key
-                |> View.map Page
+view { page, shared, url, key } =
+    Shared.view (Request.create () url key)
+        { page = Pages.view page shared url key |> View.map Page
         , toMsg = Shared
         }
-        model.shared
+        shared
         |> View.toBrowserDocument

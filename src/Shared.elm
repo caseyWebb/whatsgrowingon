@@ -1,11 +1,13 @@
 module Shared exposing
-    ( Model
+    ( Modal(..)
+    , Model
     , Msg
     , ToBackend(..)
     , ToFrontend(..)
     , addZone
     , fromBackend
     , init
+    , showModal
     , subscriptions
     , update
     , updateZone
@@ -17,9 +19,8 @@ import Css.Media
 import Data exposing (..)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
-import Html.Styled.Attributes as Attrs
-import Maybe.Extra as Maybe
-import Modal exposing (Modal)
+import Html.Styled.Attributes exposing (attribute, css)
+import Html.Styled.Events exposing (onClick)
 import Random
 import RemoteData exposing (RemoteData)
 import Request exposing (Request)
@@ -42,18 +43,29 @@ fromBackend =
     FromBackend
 
 
+showModal : Modal -> Msg
+showModal =
+    ShowModal
+
+
 
 -- INIT
 
 
 type alias Model =
     { zones : RemoteData String (Dict Slug Zone)
+    , modal : Maybe Modal
     }
+
+
+type Modal
+    = AddPlantingModal
 
 
 init : { toBackend : ToBackend -> Cmd msg } -> Request -> ( Model, Cmd msg )
 init { toBackend } _ =
     ( { zones = RemoteData.Loading
+      , modal = Nothing
       }
     , toBackend <| FetchZones
     )
@@ -68,6 +80,8 @@ type Msg
     | AddZone
     | UpdateZone Bool Zone
     | GotNewSlug Slug
+    | ShowModal Modal
+    | CloseModal
 
 
 type ToBackend
@@ -123,6 +137,16 @@ update { toBackend } _ msg model =
                 Cmd.none
             )
 
+        ShowModal modal ->
+            ( { model | modal = Just modal }
+            , Cmd.none
+            )
+
+        CloseModal ->
+            ( { model | modal = Nothing }
+            , Cmd.none
+            )
+
 
 subscriptions : Request -> Model -> Sub Msg
 subscriptions _ _ =
@@ -138,8 +162,115 @@ view :
     -> { page : View msg, toMsg : Msg -> msg }
     -> Model
     -> View msg
-view req { page, toMsg } model =
+view _ { page, toMsg } model =
     { title = page.title
-    , body = page.body
-    , modal = page.modal
+    , body =
+        [ (case model.modal of
+            Just modal_ ->
+                [ div [ attribute "inert" "true" ] page.body
+                , viewModal model modal_ |> Html.map toMsg
+                ]
+
+            Nothing ->
+                page.body
+          )
+            |> div
+                [ css
+                    [ Css.fontFamily Css.sansSerif
+                    , Css.width (Css.pct 100)
+                    , Css.minHeight (Css.vh 100)
+                    , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                        [ Css.backgroundColor (Css.hex "030303")
+                        , Css.color (Css.hex "ccc")
+                        ]
+                    ]
+                ]
+        ]
     }
+
+
+viewModal : Model -> Modal -> Html Msg
+viewModal model modal =
+    Html.div
+        [ css
+            [ Css.displayFlex
+            , Css.justifyContent Css.center
+            , Css.alignItems Css.center
+            , Css.position Css.fixed
+            , Css.top Css.zero
+            , Css.right Css.zero
+            , Css.bottom Css.zero
+            , Css.left Css.zero
+            ]
+        ]
+        [ viewModalBackdrop
+        , viewModalContent <|
+            case modal of
+                AddPlantingModal ->
+                    viewAddPlantingModal
+        ]
+
+
+viewModalBackdrop : Html Msg
+viewModalBackdrop =
+    div
+        [ css
+            [ Css.position Css.fixed
+            , Css.top (Css.px 0)
+            , Css.left (Css.px 0)
+            , Css.width (Css.pct 100)
+            , Css.height (Css.pct 100)
+            , Css.backgroundColor (Css.rgba 0 0 0 0.8)
+            ]
+        , onClick CloseModal
+        ]
+        []
+
+
+viewModelCloseButton : Html Msg
+viewModelCloseButton =
+    Html.button
+        [ css
+            [ Css.position Css.absolute
+            , Css.top (Css.px -30)
+            , Css.right (Css.px -30)
+            , Css.width (Css.px 30)
+            , Css.height (Css.px 30)
+            , Css.color (Css.hex "fff")
+            , Css.backgroundColor (Css.rgba 0 0 0 1)
+            , Css.borderRadius (Css.pct 50)
+            , Css.border3 (Css.px 3) Css.solid (Css.hex "fff")
+            , Css.outline Css.none
+            , Css.fontWeight Css.bold
+            , Css.fontSize (Css.px 20)
+            ]
+        , onClick CloseModal
+        ]
+        [ text "X" ]
+
+
+viewModalContent : Html Msg -> Html Msg
+viewModalContent content =
+    Html.div
+        [ css
+            [ Css.backgroundColor (Css.hex "111")
+            , Css.borderRadius (Css.px 6)
+            , Css.color (Css.hex "fff")
+            , Css.width (Css.px 600)
+            , Css.maxWidth (Css.vw 90)
+            , Css.position Css.relative
+            , Css.padding2 Css.zero (Css.px 20)
+            ]
+        ]
+        [ viewModelCloseButton
+        , content
+        ]
+
+
+viewAddPlantingModal : Html Msg
+viewAddPlantingModal =
+    Html.div
+        []
+        [ Html.h1 [] [ text "Add Planting" ]
+        , Html.p [] [ text "TODO" ]
+        ]
