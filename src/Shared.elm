@@ -7,7 +7,7 @@ module Shared exposing
     , addZone
     , fromBackend
     , init
-    , showModal
+    , showAddPlantingModal
     , subscriptions
     , update
     , updateZone
@@ -19,18 +19,21 @@ import Css.Media
 import Data exposing (..)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
-import Html.Styled.Attributes exposing (attribute, css)
-import Html.Styled.Events exposing (onClick)
+import Html.Styled.Attributes as Attrs exposing (attribute, css)
+import Html.Styled.Events exposing (onClick, onInput)
+import Maybe.Extra as Maybe
 import Random
 import RemoteData exposing (RemoteData)
 import Request exposing (Request)
 import Slug exposing (Slug)
+import Task
+import Time
 import View exposing (View)
 
 
 addZone : Msg
 addZone =
-    AddZone
+    AddZone Nothing
 
 
 updateZone : Bool -> Zone -> Msg
@@ -43,9 +46,9 @@ fromBackend =
     FromBackend
 
 
-showModal : Modal -> Msg
-showModal =
-    ShowModal
+showAddPlantingModal : Slug -> Msg
+showAddPlantingModal zoneSlug =
+    ShowModal (AddPlantingModal <| AddPlantingModalStep1 zoneSlug)
 
 
 
@@ -53,21 +56,38 @@ showModal =
 
 
 type alias Model =
-    { zones : RemoteData String (Dict Slug Zone)
+    { data :
+        RemoteData
+            String
+            { zones : Dict Slug Zone
+            , crops : Dict Slug Crop
+            , varieties : Dict Slug Variety
+            }
     , modal : Maybe Modal
+    , now : Maybe Time.Posix
     }
 
 
 type Modal
-    = AddPlantingModal
+    = AddPlantingModal AddPlantingStep
 
 
-init : { toBackend : ToBackend -> Cmd msg } -> Request -> ( Model, Cmd msg )
+type AddPlantingStep
+    = AddPlantingModalStep1 Slug
+    | AddPlantingModalStep2 Slug Slug
+    | AddPlantingModalStep3 Slug Slug Slug Int
+
+
+init : { toBackend : ToBackend -> Cmd Msg } -> Request -> ( Model, Cmd Msg )
 init { toBackend } _ =
-    ( { zones = RemoteData.Loading
+    ( { data = RemoteData.Loading
       , modal = Nothing
+      , now = Nothing
       }
-    , toBackend <| FetchZones
+    , Cmd.batch
+        [ toBackend <| FetchData
+        , Time.now |> Task.perform GotCurrentTime
+        ]
     )
 
 
@@ -77,56 +97,68 @@ init { toBackend } _ =
 
 type Msg
     = FromBackend ToFrontend
-    | AddZone
+    | AddZone (Maybe Slug)
     | UpdateZone Bool Zone
-    | CreateZoneWithSlug Slug
     | ShowModal Modal
     | CloseModal
+    | AdvanceAddPlantingModal AddPlantingStep
+    | OnNewPlantingAmountChange String
+    | AddPlanting Slug Slug Slug Int (Maybe Time.Posix)
+    | GotCurrentTime Time.Posix
 
 
 type ToBackend
-    = FetchZones
+    = FetchData
     | SaveZone Zone
 
 
 type ToFrontend
-    = GotZones (Dict Slug Zone)
+    = GotData
+        { zones : Dict Slug Zone
+        , crops : Dict Slug Crop
+        , varieties : Dict Slug Variety
+        }
 
 
 update : { toBackend : ToBackend -> Cmd Msg } -> Request -> Msg -> Model -> ( Model, Cmd Msg )
-update { toBackend } _ msg model =
+update ({ toBackend } as config) req msg model =
     case msg of
-        FromBackend (GotZones zones) ->
-            ( { model | zones = RemoteData.Success zones }
+        FromBackend (GotData data) ->
+            ( { model
+                | data = RemoteData.Success data
+              }
             , Cmd.none
             )
 
-        AddZone ->
-            ( model
-            , Random.generate CreateZoneWithSlug Slug.random
-            )
+        AddZone maybeSlug ->
+            case maybeSlug of
+                Nothing ->
+                    ( model
+                    , Random.generate (AddZone << Just) Slug.random
+                    )
 
-        CreateZoneWithSlug slug ->
-            let
-                index =
-                    RemoteData.map Dict.size model.zones
-                        |> RemoteData.toMaybe
-                        |> Maybe.withDefault 0
+                Just slug ->
+                    let
+                        index =
+                            RemoteData.map (.zones >> Dict.size) model.data
+                                |> RemoteData.toMaybe
+                                |> Maybe.withDefault 0
 
-                zone =
-                    Slug.map (\str -> Zone slug index str []) slug
-            in
-            ( { model
-                | zones =
-                    RemoteData.map (Dict.insert (Slug.map identity) slug zone) model.zones
-              }
-            , toBackend (SaveZone zone)
-            )
+                        zone =
+                            Slug.map (\str -> Zone slug index str []) slug
+                    in
+                    update config req (UpdateZone True zone) model
 
         UpdateZone save zone ->
             ( { model
-                | zones =
-                    RemoteData.map (Dict.insert (Slug.map identity) zone.slug zone) model.zones
+                | data =
+                    RemoteData.map
+                        (\data ->
+                            { data
+                                | zones = Dict.insert (Slug.map identity) zone.slug zone data.zones
+                            }
+                        )
+                        model.data
               }
             , if save then
                 toBackend (SaveZone zone)
@@ -142,6 +174,55 @@ update { toBackend } _ msg model =
 
         CloseModal ->
             ( { model | modal = Nothing }
+            , Cmd.none
+            )
+
+        AdvanceAddPlantingModal step ->
+            ( { model | modal = Just (AddPlantingModal step) }
+            , Cmd.none
+            )
+
+        OnNewPlantingAmountChange amountStr ->
+            case ( model.modal, String.toInt amountStr ) of
+                ( Just (AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety _)), Just newAmount ) ->
+                    ( { model
+                        | modal = Just (AddPlantingModal <| AddPlantingModalStep3 zoneSlug crop variety newAmount)
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        AddPlanting zoneSlug cropSlug varietySlug amount maybePosix ->
+            case Maybe.or maybePosix model.now of
+                Nothing ->
+                    ( model, Time.now |> Task.perform (Just >> AddPlanting zoneSlug cropSlug varietySlug amount) )
+
+                Just now ->
+                    let
+                        planting =
+                            Planting cropSlug varietySlug (toFloat amount / 100) now []
+
+                        ( updatedModel, updateZoneCmd ) =
+                            model.data
+                                |> RemoteData.map (.zones >> Dict.get (Slug.map identity) zoneSlug)
+                                |> RemoteData.toMaybe
+                                |> Maybe.andThen identity
+                                |> Maybe.map (\zone -> update config req (UpdateZone True { zone | plantings = planting :: zone.plantings }) model)
+                                |> Maybe.withDefault ( model, Cmd.none )
+                    in
+                    update config req CloseModal updatedModel
+                        |> Tuple.mapSecond
+                            (\closedModalCmd ->
+                                Cmd.batch
+                                    [ closedModalCmd
+                                    , updateZoneCmd
+                                    ]
+                            )
+
+        GotCurrentTime maybePosix ->
+            ( { model | now = Just maybePosix }
             , Cmd.none
             )
 
@@ -177,6 +258,7 @@ view _ { page, toMsg } model =
                     [ Css.fontFamily Css.sansSerif
                     , Css.width (Css.pct 100)
                     , Css.minHeight (Css.vh 100)
+                    , Css.overflow Css.auto
                     , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
                         [ Css.backgroundColor (Css.hex "030303")
                         , Css.color (Css.hex "ccc")
@@ -203,9 +285,12 @@ viewModal model modal =
         ]
         [ viewModalBackdrop
         , viewModalContent <|
-            case modal of
-                AddPlantingModal ->
-                    viewAddPlantingModal
+            case ( modal, model.data ) of
+                ( AddPlantingModal modalModel, RemoteData.Success data ) ->
+                    viewAddPlantingModal data modalModel
+
+                ( _, _ ) ->
+                    Html.text "Loading..."
         ]
 
 
@@ -218,7 +303,10 @@ viewModalBackdrop =
             , Css.left (Css.px 0)
             , Css.width (Css.pct 100)
             , Css.height (Css.pct 100)
-            , Css.backgroundColor (Css.rgba 0 0 0 0.8)
+            , Css.backgroundColor (Css.rgba 255 255 255 0.8)
+            , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                [ Css.backgroundColor (Css.rgba 0 0 0 0.8)
+                ]
             ]
         , onClick CloseModal
         ]
@@ -234,13 +322,20 @@ viewModelCloseButton =
             , Css.right (Css.px -30)
             , Css.width (Css.px 30)
             , Css.height (Css.px 30)
-            , Css.color (Css.hex "fff")
-            , Css.backgroundColor (Css.rgba 0 0 0 1)
             , Css.borderRadius (Css.pct 50)
-            , Css.border3 (Css.px 3) Css.solid (Css.hex "fff")
             , Css.outline Css.none
             , Css.fontWeight Css.bold
             , Css.fontSize (Css.px 20)
+            , Css.border3 (Css.px 3) Css.solid (Css.hex "111")
+            , Css.backgroundColor (Css.hex "fff")
+            , Css.hover
+                [ Css.backgroundColor (Css.hex "111")
+                , Css.color (Css.hex "fff")
+                ]
+            , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                [ Css.color (Css.hex "fff")
+                , Css.backgroundColor (Css.rgba 0 0 0 1)
+                ]
             ]
         , onClick CloseModal
         ]
@@ -251,9 +346,7 @@ viewModalContent : Html Msg -> Html Msg
 viewModalContent content =
     Html.div
         [ css
-            [ Css.backgroundColor (Css.hex "111")
-            , Css.borderRadius (Css.px 6)
-            , Css.color (Css.hex "fff")
+            [ Css.borderRadius (Css.px 6)
             , Css.width (Css.px 600)
             , Css.maxWidth (Css.vw 90)
             , Css.position Css.relative
@@ -265,10 +358,77 @@ viewModalContent content =
         ]
 
 
-viewAddPlantingModal : Html Msg
-viewAddPlantingModal =
-    Html.div
-        []
-        [ Html.h1 [] [ text "Add Planting" ]
-        , Html.p [] [ text "TODO" ]
-        ]
+viewAddPlantingModal : { data | crops : Dict Slug Crop, varieties : Dict Slug Variety } -> AddPlantingStep -> Html Msg
+viewAddPlantingModal { crops, varieties } modalModel =
+    let
+        buttonStyles =
+            css
+                [ Css.padding (Css.em 1)
+                , Css.margin2 (Css.px 10) (Css.em 0.5)
+                , Css.fontWeight Css.bold
+                , Css.textTransform Css.uppercase
+                , Css.borderRadius (Css.px 6)
+                , Css.outline Css.none
+                , Css.border3 (Css.px 3) Css.solid (Css.hex "111")
+                , Css.backgroundColor (Css.hex "fff")
+                , Css.hover
+                    [ Css.backgroundColor (Css.hex "111")
+                    , Css.color (Css.hex "fff")
+                    ]
+                ]
+
+        wrappingFlexRow =
+            Html.div
+                [ css
+                    [ Css.displayFlex
+                    , Css.flexWrap Css.wrap
+                    , Css.justifyContent Css.center
+                    ]
+                ]
+    in
+    case modalModel of
+        AddPlantingModalStep1 zoneSlug ->
+            Dict.values crops
+                |> List.map
+                    (\crop ->
+                        Html.button
+                            [ buttonStyles
+                            , onClick (AdvanceAddPlantingModal (AddPlantingModalStep2 zoneSlug crop.slug))
+                            ]
+                            [ Html.text crop.name ]
+                    )
+                |> wrappingFlexRow
+
+        AddPlantingModalStep2 zoneSlug selectedCrop ->
+            Dict.get (Slug.map identity) selectedCrop crops
+                |> Maybe.map .varieties
+                |> Maybe.withDefault []
+                |> List.filterMap (\slug -> Dict.get (Slug.map identity) slug varieties)
+                |> List.map
+                    (\variety ->
+                        Html.button
+                            [ buttonStyles
+                            , onClick (AdvanceAddPlantingModal (AddPlantingModalStep3 zoneSlug selectedCrop variety.slug 100))
+                            ]
+                            [ Html.text variety.name ]
+                    )
+                |> wrappingFlexRow
+
+        AddPlantingModalStep3 zoneSlug selectedCrop selectedVariety amount ->
+            Html.div [ css [ Css.displayFlex, Css.flexDirection Css.column, Css.alignItems Css.center ] ]
+                [ Html.input
+                    [ Attrs.type_ "range"
+                    , Attrs.min "0"
+                    , Attrs.max "100"
+                    , Attrs.step "5"
+                    , Attrs.value (String.fromInt amount)
+                    , onInput OnNewPlantingAmountChange
+                    , css
+                        [ Css.width (Css.pct 100)
+                        ]
+                    ]
+                    []
+                , Html.p [] [ Html.text <| String.fromInt amount ++ "%" ]
+                , Html.button [ buttonStyles, onClick (AddPlanting zoneSlug selectedCrop selectedVariety amount Nothing) ]
+                    [ Html.text "Add" ]
+                ]

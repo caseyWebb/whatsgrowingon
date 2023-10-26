@@ -13,21 +13,22 @@ type alias Zone =
 
 
 type alias Planting =
-    { time : Time.Posix
-    , notes : List ( Time.Posix, String )
-    , cropId : Slug
+    { cropId : Slug
     , varietyId : Slug
+    , amount : Float
+    , time : Time.Posix
+    , notes : List ( Time.Posix, String )
     }
 
 
 type alias Crop =
     { slug : Slug
     , name : String
-    , varietyId : Slug
+    , varieties : List Slug
     }
 
 
 type alias Variety =
-    { name : String
-    , daysToHarvest : Int
+    { slug : Slug
+    , name : String
     }
