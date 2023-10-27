@@ -5,6 +5,7 @@ import Css.Media
 import Html.Styled exposing (button)
 import Html.Styled.Attributes exposing (css)
 import Html.Styled.Events exposing (onClick)
+import Ui.FocusRing exposing (focusRing)
 
 
 view :
@@ -15,7 +16,8 @@ view :
 view clickHandler attrs content =
     button
         (css
-            [ Css.fontWeight Css.bold
+            [ focusRing
+            , Css.fontWeight Css.bold
             , Css.fontSize (Css.px 18)
             , Css.outline Css.none
             , Css.border Css.zero
@@ -29,8 +31,6 @@ view clickHandler attrs content =
                 ]
             , Css.focus
                 [ Css.color (Css.hex "4f518c")
-                , Css.outline3 (Css.px 5) Css.solid (Css.hex "4f518c")
-                , Css.outlineOffset (Css.px 5)
                 ]
             , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
                 [ Css.backgroundColor (Css.rgba 255 255 255 0.1)
@@ -41,7 +41,6 @@ view clickHandler attrs content =
                     ]
                 , Css.focus
                     [ Css.color (Css.hex "fff")
-                    , Css.outlineColor (Css.hex "fff")
                     ]
                 ]
             ]

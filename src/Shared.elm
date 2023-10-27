@@ -15,6 +15,7 @@ module Shared exposing
     , view
     )
 
+import Browser.Dom as Dom
 import Css
 import Css.Media
 import Data exposing (..)
@@ -107,6 +108,7 @@ init { toBackend } _ =
 type Msg
     = FromBackend ToFrontend
     | AddZone (Maybe Slug)
+    | FocusZone Slug
     | UpdateZone Bool Zone
     | ConfirmDeleteZone Zone
     | ShowModal Modal
@@ -115,6 +117,7 @@ type Msg
     | OnNewPlantingAmountChange String
     | AddPlanting Slug Slug Slug Int (Maybe Time.Posix)
     | GotCurrentTime Time.Posix
+    | NoOp
 
 
 type ToBackend
@@ -161,10 +164,14 @@ update ({ toBackend } as config) req msg model =
                                 |> RemoteData.toMaybe
                                 |> Maybe.withDefault 0
 
-                        zone =
-                            Slug.map (\str -> Zone slug index str []) slug
+                        newZone =
+                            Zone slug index "" []
                     in
-                    update config req (UpdateZone True zone) model
+                    update config req (UpdateZone True newZone) model
+                        |> andThen (FocusZone slug)
+
+        FocusZone slug ->
+            ( model, Slug.map Dom.focus slug |> Task.attempt (always NoOp) )
 
         UpdateZone save zone ->
             ( { model
@@ -248,6 +255,9 @@ update ({ toBackend } as config) req msg model =
             ( { model | now = Just maybePosix }
             , Cmd.none
             )
+
+        NoOp ->
+            ( model, Cmd.none )
 
 
 subscriptions : Request -> Model -> Sub Msg

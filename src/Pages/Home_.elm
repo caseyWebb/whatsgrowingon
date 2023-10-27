@@ -16,6 +16,7 @@ import Slug exposing (Slug)
 import Time
 import Ui.Button as Button
 import Ui.Color as Color
+import Ui.FocusRing exposing (focusRing)
 import View exposing (View)
 
 
@@ -157,6 +158,8 @@ viewZone data now zone =
             ]
             [ Html.input
                 [ Attrs.value zone.name
+                , Attrs.placeholder "Zone name"
+                , Slug.map Attrs.id zone.slug
                 , css
                     [ Css.backgroundColor Css.inherit
                     , Css.color Css.inherit
@@ -174,6 +177,7 @@ viewZone data now zone =
                     [ Css.backgroundColor (Css.rgba 0 0 0 0)
                     , Css.outline Css.none
                     , Css.border Css.zero
+                    , focusRing
                     ]
                 , onClick (ShowConfirmDeleteZoneModal zone)
                 ]
