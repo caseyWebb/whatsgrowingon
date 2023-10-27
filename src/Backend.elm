@@ -130,5 +130,10 @@ updateFromFrontend _ clientId msg model =
                     , Cmd.none
                     )
 
+                Shared.DeleteZone slug ->
+                    ( { model | zones = Dict.remove (Slug.map identity) slug model.zones }
+                    , Cmd.none
+                    )
+
         NoOpToBackend ->
             ( model, Cmd.none )

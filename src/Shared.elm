@@ -8,6 +8,7 @@ module Shared exposing
     , fromBackend
     , init
     , showAddPlantingModal
+    , showConfirmDeleteZoneModal
     , subscriptions
     , update
     , updateZone
@@ -53,6 +54,11 @@ showAddPlantingModal zone =
     ShowModal (AddPlantingModal <| AddPlantingModalStep1 zone)
 
 
+showConfirmDeleteZoneModal : Zone -> Msg
+showConfirmDeleteZoneModal zone =
+    ShowModal (ConfirmDeleteZoneModal zone)
+
+
 
 -- INIT
 
@@ -72,6 +78,7 @@ type alias Model =
 
 type Modal
     = AddPlantingModal AddPlantingStep
+    | ConfirmDeleteZoneModal Zone
 
 
 type AddPlantingStep
@@ -101,6 +108,7 @@ type Msg
     = FromBackend ToFrontend
     | AddZone (Maybe Slug)
     | UpdateZone Bool Zone
+    | ConfirmDeleteZone Zone
     | ShowModal Modal
     | CloseModal
     | AdvanceAddPlantingModal AddPlantingStep
@@ -112,6 +120,7 @@ type Msg
 type ToBackend
     = FetchData
     | SaveZone Zone
+    | DeleteZone Slug
 
 
 type ToFrontend
@@ -124,6 +133,12 @@ type ToFrontend
 
 update : { toBackend : ToBackend -> Cmd Msg } -> Request -> Msg -> Model -> ( Model, Cmd Msg )
 update ({ toBackend } as config) req msg model =
+    let
+        andThen msg_ ( updatedModel, cmd ) =
+            update config req msg_ updatedModel
+                |> Tuple.mapSecond
+                    (\cmd_ -> Cmd.batch [ cmd, cmd_ ])
+    in
     case msg of
         FromBackend (GotData data) ->
             ( { model
@@ -169,6 +184,21 @@ update ({ toBackend } as config) req msg model =
                 Cmd.none
             )
 
+        ConfirmDeleteZone zone ->
+            ( { model
+                | data =
+                    RemoteData.map
+                        (\data ->
+                            { data
+                                | zones = Dict.remove (Slug.map identity) zone.slug data.zones
+                            }
+                        )
+                        model.data
+              }
+            , toBackend (DeleteZone zone.slug)
+            )
+                |> andThen CloseModal
+
         ShowModal modal ->
             ( { model | modal = Just modal }
             , Cmd.none
@@ -205,23 +235,14 @@ update ({ toBackend } as config) req msg model =
                     let
                         planting =
                             Planting cropSlug varietySlug amount now []
-
-                        ( updatedModel, updateZoneCmd ) =
-                            model.data
-                                |> RemoteData.map (.zones >> Dict.get (Slug.map identity) zoneSlug)
-                                |> RemoteData.toMaybe
-                                |> Maybe.andThen identity
-                                |> Maybe.map (\zone -> update config req (UpdateZone True { zone | plantings = planting :: zone.plantings }) model)
-                                |> Maybe.withDefault ( model, Cmd.none )
                     in
-                    update config req CloseModal updatedModel
-                        |> Tuple.mapSecond
-                            (\closedModalCmd ->
-                                Cmd.batch
-                                    [ closedModalCmd
-                                    , updateZoneCmd
-                                    ]
-                            )
+                    model.data
+                        |> RemoteData.map (.zones >> Dict.get (Slug.map identity) zoneSlug)
+                        |> RemoteData.toMaybe
+                        |> Maybe.andThen identity
+                        |> Maybe.map (\zone -> update config req (UpdateZone True { zone | plantings = planting :: zone.plantings }) model)
+                        |> Maybe.withDefault ( model, Cmd.none )
+                        |> andThen CloseModal
 
         GotCurrentTime maybePosix ->
             ( { model | now = Just maybePosix }
@@ -293,8 +314,17 @@ viewModal model modal =
                 ( AddPlantingModal modalModel, RemoteData.Success data ) ->
                     viewAddPlantingModal data modalModel
 
-                ( _, _ ) ->
+                ( ConfirmDeleteZoneModal zone, _ ) ->
+                    viewConfirmDeleteZoneModal zone
+
+                ( _, RemoteData.Loading ) ->
                     Html.text "Loading..."
+
+                ( _, RemoteData.Failure _ ) ->
+                    Html.text "Something went wrong..."
+
+                ( _, RemoteData.NotAsked ) ->
+                    Html.text "Something when wrong..."
         ]
 
 
@@ -435,3 +465,26 @@ viewAddPlantingModal { crops, varieties } modalModel =
                 , Html.p [] [ Html.text <| String.fromInt amount ++ "%" ]
                 , Button.view (AddPlanting zone.slug selectedCrop.slug selectedVariety.slug amount Nothing) [] [ Html.text "Add" ]
                 ]
+
+
+viewConfirmDeleteZoneModal : Zone -> Html Msg
+viewConfirmDeleteZoneModal zone =
+    Html.div
+        [ css
+            [ Css.padding (Css.em 1)
+            , Css.displayFlex
+            , Css.flexDirection Css.column
+            , Css.alignItems Css.center
+            ]
+        ]
+        [ Html.p [] [ Html.text <| "Are you sure you want to delete " ++ zone.name ++ "?" ]
+        , Html.div
+            [ css
+                [ Css.displayFlex
+                , Css.property "gap" "1em"
+                ]
+            ]
+            [ Button.view (ConfirmDeleteZone zone) [ css [ Color.styles Color.Red ] ] [ Html.text "Delete" ]
+            , Button.view CloseModal [] [ Html.text "Cancel" ]
+            ]
+        ]

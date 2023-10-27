@@ -7,7 +7,7 @@ import Effect exposing (Effect)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (Html, div, span)
 import Html.Styled.Attributes as Attrs exposing (css)
-import Html.Styled.Events exposing (onBlur, onInput)
+import Html.Styled.Events exposing (onBlur, onClick, onInput)
 import Page
 import RemoteData exposing (RemoteData(..))
 import Request exposing (Request)
@@ -27,6 +27,7 @@ type Msg
     = AddZone
     | UpdateZone Bool Zone
     | ShowNewPlantingModal Zone
+    | ShowConfirmDeleteZoneModal Zone
 
 
 page : Shared.Model -> Request -> Page.With Model Msg
@@ -55,6 +56,9 @@ update msg model =
 
         ShowNewPlantingModal zone ->
             ( model, Effect.fromShared <| Shared.showAddPlantingModal zone )
+
+        ShowConfirmDeleteZoneModal zone ->
+            ( model, Effect.fromShared <| Shared.showConfirmDeleteZoneModal zone )
 
 
 view : Shared.Model -> Model -> View Msg
@@ -145,20 +149,36 @@ viewZone data now zone =
             , Css.padding2 (Css.em 1) Css.zero
             ]
         ]
-        [ Html.input
-            [ Attrs.value zone.name
-            , css
-                [ Css.backgroundColor Css.inherit
-                , Css.color Css.inherit
-                , Css.fontWeight Css.bold
-                , Css.fontSize (Css.px 14)
-                , Css.border Css.zero
-                , Css.focus [ Css.outline Css.none ]
+        [ Html.div
+            [ css
+                [ Css.displayFlex
+                , Css.justifyContent Css.spaceBetween
                 ]
-            , onInput (\name -> UpdateZone False { zone | name = name })
-            , onBlur (UpdateZone True zone)
             ]
-            []
+            [ Html.input
+                [ Attrs.value zone.name
+                , css
+                    [ Css.backgroundColor Css.inherit
+                    , Css.color Css.inherit
+                    , Css.fontWeight Css.bold
+                    , Css.fontSize (Css.px 14)
+                    , Css.border Css.zero
+                    , Css.focus [ Css.outline Css.none ]
+                    ]
+                , onInput (\name -> UpdateZone False { zone | name = name })
+                , onBlur (UpdateZone True zone)
+                ]
+                []
+            , Html.button
+                [ css
+                    [ Css.backgroundColor (Css.rgba 0 0 0 0)
+                    , Css.outline Css.none
+                    , Css.border Css.zero
+                    ]
+                , onClick (ShowConfirmDeleteZoneModal zone)
+                ]
+                [ Html.text "🗑" ]
+            ]
         , Html.ul
             [ css
                 [ Css.paddingLeft Css.zero
@@ -181,7 +201,7 @@ viewZone data now zone =
                                     ]
                                 ]
                             ]
-                            [ Html.text "+" ]
+                            [ Html.text "➕" ]
                         ]
 
                     else
