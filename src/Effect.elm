@@ -1,6 +1,6 @@
 module Effect exposing
     ( Effect, none, map, batch
-    , focus
+    , focus, getCurrentTime
     , fromCmd, fromShared
     , toCmd
     )
@@ -8,7 +8,7 @@ module Effect exposing
 {-|
 
 @docs Effect, none, map, batch
-@docs focus
+@docs focus, getCurrentTime
 @docs fromCmd, fromShared
 @docs toCmd
 
@@ -17,6 +17,7 @@ module Effect exposing
 import Browser.Dom as Dom
 import Shared
 import Task
+import Time
 
 
 type Effect msg
@@ -25,6 +26,7 @@ type Effect msg
     | Shared Shared.Msg
     | Batch (List (Effect msg))
     | Focus String (Result Dom.Error () -> msg)
+    | GetCurrentTime (Time.Posix -> msg)
 
 
 none : Effect msg
@@ -50,6 +52,9 @@ map fn effect =
         Focus str onFocusResult ->
             Focus str (onFocusResult >> fn)
 
+        GetCurrentTime gotTime ->
+            GetCurrentTime (gotTime >> fn)
+
 
 fromCmd : Cmd msg -> Effect msg
 fromCmd =
@@ -69,6 +74,11 @@ batch =
 focus : String -> (Result Dom.Error () -> msg) -> Effect msg
 focus =
     Focus
+
+
+getCurrentTime : (Time.Posix -> msg) -> Effect msg
+getCurrentTime =
+    GetCurrentTime
 
 
 
@@ -99,3 +109,6 @@ toCmd ( fromSharedMsg, fromPageMsg ) effect =
         Focus str onFocusResult ->
             Dom.focus str
                 |> Task.attempt (onFocusResult >> fromPageMsg)
+
+        GetCurrentTime gotTime ->
+            Time.now |> Task.perform (gotTime >> fromPageMsg)

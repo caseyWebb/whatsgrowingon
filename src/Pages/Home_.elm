@@ -8,6 +8,7 @@ import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (Html, div, p, span)
 import Html.Styled.Attributes as Attrs exposing (css)
 import Html.Styled.Events exposing (onBlur, onClick, onInput)
+import Maybe.Extra as Maybe
 import Page
 import RemoteData exposing (RemoteData(..))
 import Request exposing (Request)
@@ -17,16 +18,33 @@ import Time
 import Ui.Button as Button
 import Ui.Color as Color
 import Ui.FocusRing exposing (focusRing)
-import Ui.Modal
+import Ui.Modal as Modal
 import View exposing (View)
 
 
+page : Shared.Model -> Request -> Page.With Model Msg
+page shared _ =
+    Page.advanced
+        { init = init
+        , update = update shared
+        , view = view shared
+        , subscriptions = subscriptions
+        }
+
+
 type alias Model =
-    { modal : Ui.Modal.Model Modal }
+    { modal : Modal.Model ModalKind Msg }
 
 
-type Modal
+type ModalKind
     = ConfirmDeleteZoneModal Zone
+    | AddPlantingModal AddPlantingStep
+
+
+type AddPlantingStep
+    = AddPlantingModalStep1 Zone
+    | AddPlantingModalStep2 Zone Crop
+    | AddPlantingModalStep3 Zone Crop Variety Int
 
 
 type Msg
@@ -36,32 +54,29 @@ type Msg
     | ShowNewPlantingModal Zone
     | ShowConfirmDeleteZoneModal Zone
     | CloseModal
-    | ModalMsg Ui.Modal.Msg
+    | ModalMsg Modal.Msg
     | FocusAddPlantingButton Slug
     | FocusDeleteZoneModalButton Slug
+    | AdvanceAddPlantingModal AddPlantingStep
+    | OnNewPlantingAmountChange String
+    | AddPlanting Slug Slug Slug Int (Maybe Time.Posix)
     | NoOp
-
-
-page : Shared.Model -> Request -> Page.With Model Msg
-page shared _ =
-    Page.advanced
-        { init = init
-        , update = update
-        , view = view shared
-        , subscriptions = \_ -> Sub.none
-        }
 
 
 init : ( Model, Effect Msg )
 init =
-    ( { modal = Ui.Modal.closed
+    ( { modal = Modal.closed
       }
     , Effect.none
     )
 
 
-update : Msg -> Model -> ( Model, Effect Msg )
-update msg model =
+update : Shared.Model -> Msg -> Model -> ( Model, Effect Msg )
+update ({ data } as shared) msg model =
+    let
+        andThen msg_ ( updatedModel, effect ) =
+            update shared msg_ updatedModel |> Tuple.mapSecond (List.singleton >> (::) effect >> Effect.batch)
+    in
     case msg of
         NoOp ->
             ( model, Effect.none )
@@ -73,28 +88,97 @@ update msg model =
             ( model, Effect.fromShared (Shared.updateZone save zone) )
 
         DeleteZone slug ->
-            ( { model | modal = Ui.Modal.closed }, Effect.fromShared (Shared.deleteZone slug) )
+            ( { model | modal = Modal.closed }, Effect.fromShared (Shared.deleteZone slug) )
 
         ShowNewPlantingModal zone ->
-            ( model, Effect.none )
+            ( { model | modal = Modal.open (AddPlantingModal (AddPlantingModalStep1 zone)) (FocusAddPlantingButton zone.slug) }
+            , Effect.focus (addPlantingModalCropButtonId 0) (always NoOp)
+            )
 
         ShowConfirmDeleteZoneModal zone ->
-            ( { model | modal = Ui.Modal.open (ConfirmDeleteZoneModal zone) }
+            ( { model | modal = Modal.open (ConfirmDeleteZoneModal zone) (FocusDeleteZoneModalButton zone.slug) }
             , Effect.none
             )
 
         CloseModal ->
-            ( { model | modal = Ui.Modal.closed }, Effect.none )
+            ( { model | modal = Modal.closed }, Effect.none )
 
         ModalMsg modalMsg ->
-            ( { model | modal = Ui.Modal.update modalMsg model.modal }, Effect.none )
+            let
+                ( updatedModal, cmd ) =
+                    Modal.update modalMsg model.modal
+            in
+            ( { model | modal = updatedModal }, Effect.fromCmd cmd )
 
-        -- ( model, Effect.fromShared <| Shared.showConfirmDeleteZoneModal (FocusDeleteZoneModalButton zone.slug) zone )
         FocusAddPlantingButton zoneSlug ->
             ( model, Effect.focus (addPlantingButtonId zoneSlug) (always NoOp) )
 
         FocusDeleteZoneModalButton zoneSlug ->
             ( model, Effect.focus (confirmDeleteButtonId zoneSlug) (always NoOp) )
+
+        AdvanceAddPlantingModal step ->
+            let
+                elToFocus =
+                    case step of
+                        AddPlantingModalStep1 _ ->
+                            addPlantingModalCropButtonId 0
+
+                        AddPlantingModalStep2 _ _ ->
+                            addPlantingModalVarietyButtonId 0
+
+                        AddPlantingModalStep3 _ _ _ _ ->
+                            addPlantingModalAmountInputId
+            in
+            ( { model
+                | modal = Modal.mapModel (\_ -> AddPlantingModal step) model.modal
+              }
+            , Effect.focus elToFocus (always NoOp)
+            )
+
+        OnNewPlantingAmountChange amountStr ->
+            case ( Modal.kind model.modal, String.toInt amountStr ) of
+                ( Just (AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety _)), Just newAmount ) ->
+                    ( { model
+                        | modal =
+                            Modal.mapModel
+                                (\_ ->
+                                    AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety newAmount)
+                                )
+                                model.modal
+                      }
+                    , Effect.none
+                    )
+
+                _ ->
+                    ( model, Effect.none )
+
+        AddPlanting zoneSlug cropSlug varietySlug amount maybePosix ->
+            case maybePosix of
+                Nothing ->
+                    ( model
+                    , Effect.getCurrentTime (Just >> AddPlanting zoneSlug cropSlug varietySlug amount)
+                    )
+
+                Just now ->
+                    let
+                        newPlanting =
+                            Planting cropSlug varietySlug amount now
+                    in
+                    data
+                        |> RemoteData.map (.zones >> Dict.get (Slug.map identity) zoneSlug)
+                        |> RemoteData.toMaybe
+                        |> Maybe.andThen identity
+                        |> Maybe.map
+                            (\zone ->
+                                update shared (UpdateZone True { zone | plantings = newPlanting :: zone.plantings }) model
+                            )
+                        |> Maybe.withDefault ( model, Effect.none )
+                        |> andThen CloseModal
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Modal.subscriptions |> Sub.map ModalMsg
 
 
 addPlantingButtonId : Slug -> String
@@ -148,7 +232,7 @@ view shared model =
                         [ Html.text "Add a new zone" ]
                     ]
                 ]
-    , modal = Ui.Modal.view ModalMsg viewModal model.modal
+    , modal = Modal.view ModalMsg (viewModal shared) model.modal
     }
 
 
@@ -337,11 +421,23 @@ viewDaysAgo now timestamp =
     Html.text (String.fromInt daysSince ++ " days ago")
 
 
-viewModal : Modal -> Html Msg
-viewModal modalKind =
-    case modalKind of
-        ConfirmDeleteZoneModal zone ->
-            deleteZoneModal zone
+viewModal : Shared.Model -> ModalKind -> Html Msg
+viewModal { data } modalKind =
+    case ( modalKind, data ) of
+        ( ConfirmDeleteZoneModal zone, _ ) ->
+            viewDeleteZoneModal zone
+
+        ( AddPlantingModal step, RemoteData.Success data_ ) ->
+            viewAddPlantingModal data_ step
+
+        ( _, RemoteData.NotAsked ) ->
+            Html.text "Loading..."
+
+        ( _, RemoteData.Loading ) ->
+            Html.text "Loading..."
+
+        ( _, RemoteData.Failure err ) ->
+            Html.text <| "Something went wrong..." ++ err
 
 
 deleteZoneModalConfirmButtonId : String
@@ -349,8 +445,8 @@ deleteZoneModalConfirmButtonId =
     "delete-zone-button"
 
 
-deleteZoneModal : Zone -> Html Msg
-deleteZoneModal zone =
+viewDeleteZoneModal : Zone -> Html Msg
+viewDeleteZoneModal zone =
     div
         [ css
             [ Css.padding (Css.em 1)
@@ -374,3 +470,95 @@ deleteZoneModal zone =
             , Button.view CloseModal [] [ Html.text "Cancel" ]
             ]
         ]
+
+
+addPlantingModalCropButtonId : Int -> String
+addPlantingModalCropButtonId index =
+    "add-planting-modal-crop-button-" ++ String.fromInt index
+
+
+addPlantingModalVarietyButtonId : Int -> String
+addPlantingModalVarietyButtonId index =
+    "add-planting-modal-variety-button-" ++ String.fromInt index
+
+
+addPlantingModalAmountInputId : String
+addPlantingModalAmountInputId =
+    "add-planting-modal-amount-input"
+
+
+viewAddPlantingModal : { data | crops : Dict Slug Crop, varieties : Dict Slug Variety } -> AddPlantingStep -> Html Msg
+viewAddPlantingModal { crops, varieties } modalModel =
+    let
+        largeButtonStyles =
+            Css.important <|
+                Css.batch
+                    [ Css.padding2 (Css.em 2) (Css.em 5)
+                    , Css.margin2 (Css.px 10) (Css.em 0.5)
+                    ]
+
+        wrappingFlexRow =
+            Html.div
+                [ css
+                    [ Css.displayFlex
+                    , Css.flexWrap Css.wrap
+                    , Css.justifyContent Css.center
+                    ]
+                ]
+    in
+    case modalModel of
+        AddPlantingModalStep1 zoneSlug ->
+            Dict.values crops
+                |> List.indexedMap
+                    (\index crop ->
+                        Button.view (AdvanceAddPlantingModal (AddPlantingModalStep2 zoneSlug crop))
+                            [ Attrs.id (addPlantingModalCropButtonId index)
+                            , css
+                                [ Color.styles crop.color
+                                , largeButtonStyles
+                                ]
+                            ]
+                            [ Html.text crop.name ]
+                    )
+                |> wrappingFlexRow
+
+        AddPlantingModalStep2 zoneSlug selectedCrop ->
+            List.filterMap (\slug -> Dict.get (Slug.map identity) slug varieties) selectedCrop.varieties
+                |> List.indexedMap
+                    (\index variety ->
+                        Button.view (AdvanceAddPlantingModal (AddPlantingModalStep3 zoneSlug selectedCrop variety 100))
+                            [ Attrs.id (addPlantingModalVarietyButtonId index)
+                            , css
+                                [ Color.styles (Maybe.withDefault selectedCrop.color variety.color)
+                                , largeButtonStyles
+                                ]
+                            ]
+                            [ Html.text variety.name ]
+                    )
+                |> wrappingFlexRow
+
+        AddPlantingModalStep3 zone selectedCrop selectedVariety desiredAmount ->
+            let
+                capacity =
+                    100 - List.sum (List.map .amount zone.plantings)
+
+                amount =
+                    min desiredAmount capacity
+            in
+            Html.div [ css [ Css.displayFlex, Css.flexDirection Css.column, Css.alignItems Css.center, Css.padding (Css.em 1) ] ]
+                [ Html.input
+                    [ Attrs.id addPlantingModalAmountInputId
+                    , Attrs.type_ "range"
+                    , Attrs.min "0"
+                    , Attrs.max (String.fromInt capacity)
+                    , Attrs.step "5"
+                    , Attrs.value (String.fromInt amount)
+                    , onInput OnNewPlantingAmountChange
+                    , css
+                        [ Css.width (Css.pct 100)
+                        ]
+                    ]
+                    []
+                , Html.p [] [ Html.text <| String.fromInt amount ++ "%" ]
+                , Button.view (AddPlanting zone.slug selectedCrop.slug selectedVariety.slug amount Nothing) [] [ Html.text "Add" ]
+                ]

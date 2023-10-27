@@ -14,15 +14,12 @@ module Shared exposing
     )
 
 import Browser.Dom as Dom
-import Browser.Events exposing (onKeyDown)
 import Css
 import Css.Media
 import Data exposing (..)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
-import Html.Styled.Attributes as Attrs exposing (attribute, css)
-import Html.Styled.Events exposing (onClick, onInput)
-import Json.Decode as Decode
+import Html.Styled.Attributes exposing (css)
 import Maybe.Extra as Maybe
 import Random
 import RemoteData exposing (RemoteData)
@@ -48,12 +45,6 @@ fromBackend =
     FromBackend
 
 
-
--- showAddPlantingModal : pageMsg -> Zone -> Msg pageMsg
--- showAddPlantingModal returnFocusTo zone =
---     ShowModal returnFocusTo (AddPlantingModal (AddPlantingModalStep1 zone))
-
-
 deleteZone : Slug -> Msg
 deleteZone =
     DeleteZone
@@ -75,12 +66,6 @@ type alias Model =
     }
 
 
-type AddPlantingStep
-    = AddPlantingModalStep1 Zone
-    | AddPlantingModalStep2 Zone Crop
-    | AddPlantingModalStep3 Zone Crop Variety Int
-
-
 init : { toBackend : ToBackend -> Cmd Msg } -> Request -> ( Model, Cmd Msg )
 init { toBackend } _ =
     ( { data = RemoteData.Loading
@@ -99,14 +84,10 @@ init { toBackend } _ =
 
 type Msg
     = FromBackend ToFrontend
-    | CloseModal
     | AddZone (Maybe Slug)
     | DeleteZone Slug
     | FocusZone Slug
     | UpdateZone Bool Zone
-    | AdvanceAddPlantingModal AddPlantingStep
-    | OnNewPlantingAmountChange String
-    | AddPlanting Slug Slug Slug Int (Maybe Time.Posix)
     | GotCurrentTime Time.Posix
     | NoOp
 
@@ -135,9 +116,7 @@ update :
 update ({ toBackend } as config) req msg model =
     let
         andThen msg_ ( updatedModel, cmd ) =
-            update config req msg_ updatedModel
-                |> Tuple.mapSecond
-                    (\cmd_ -> Cmd.batch [ cmd, cmd_ ])
+            update config req msg_ updatedModel |> Tuple.mapSecond (List.singleton >> (::) cmd >> Cmd.batch)
     in
     case msg of
         FromBackend (GotData data) ->
@@ -202,76 +181,12 @@ update ({ toBackend } as config) req msg model =
             , toBackend (DeleteZoneToBackend zone)
             )
 
-        -- ShowModal returnFocusTo modal ->
-        --     ( { model | modal = Just (Modal modal) }
-        --     , Cmd.none
-        --     )
-        --         |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
-        -- CloseModal ->
-        --     ( { model | modal = Nothing }
-        --     , Cmd.none
-        --     )
-        -- AdvanceAddPlantingModal step ->
-        --     ( { model
-        --        | modal =
-        --             Maybe.map
-        --                 (\(Modal returnFocusTo _) -> Modal returnFocusTo <| AddPlantingModal step)
-        --                 model.modal
-        --       }
-        --     , Cmd.none
-        --     )
-        -- OnNewPlantingAmountChange amountStr ->
-        --     case ( model.modal, String.toInt amountStr ) of
-        --         ( Just (Modal returnFocusTo (AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety _))), Just newAmount ) ->
-        --             ( { model
-        --                 | modal =
-        --                     Just
-        --                         (Modal returnFocusTo
-        --                             (AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety newAmount))
-        --                         )
-        --               }
-        --             , Cmd.none
-        --             )
-        --         _ ->
-        --             ( model, Cmd.none )
-        -- AddPlanting zoneSlug cropSlug varietySlug amount maybePosix ->
-        --     case Maybe.or maybePosix model.now of
-        --         Nothing ->
-        --             ( model
-        --             , Time.now
-        --                 |> Task.perform
-        --                     (Just >> AddPlanting zoneSlug cropSlug varietySlug amount)
-        --             )
-        --                 |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
-        --         Just now ->
-        --             let
-        --                 newPlanting =
-        --                     Planting cropSlug varietySlug amount now
-        --             in
-        --             model.data
-        --                 |> RemoteData.map (.zones >> Dict.get (Slug.map identity) zoneSlug)
-        --                 |> RemoteData.toMaybe
-        --                 |> Maybe.andThen identity
-        --                 |> Maybe.map
-        --                     (\zone ->
-        --                         update config
-        --                             req
-        --                             (UpdateZone True
-        --                                 { zone | plantings = newPlanting :: zone.plantings }
-        --                             )
-        --                             model
-        --                     )
-        --                 |> Maybe.withDefault ( model, Cmd.none )
-        --                 |> andThen CloseModal
         GotCurrentTime maybePosix ->
             ( { model | now = Just maybePosix }
             , Cmd.none
             )
 
         NoOp ->
-            ( model, Cmd.none )
-
-        _ ->
             ( model, Cmd.none )
 
 
@@ -282,21 +197,6 @@ subscriptions _ _ =
 
 
 -- VIEW
-
-
-addPlantingModalCropButtonId : Int -> String
-addPlantingModalCropButtonId index =
-    "add-planting-modal-crop-button-" ++ String.fromInt index
-
-
-addPlantingModalVarietyButtonId : Int -> String
-addPlantingModalVarietyButtonId index =
-    "add-planting-modal-variety-button-" ++ String.fromInt index
-
-
-addPlantingModalAmountInputId : String
-addPlantingModalAmountInputId =
-    "add-planting-modal-amount-input"
 
 
 view :

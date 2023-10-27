@@ -1,4 +1,4 @@
-module Ui.Modal exposing (Modal, Model, Msg, closed, map, modal, open, subscriptions, toHtml, update, view)
+module Ui.Modal exposing (ModalView, Model, Msg, closed, kind, mapModel, mapView, modal, open, subscriptions, toHtml, update, view)
 
 import Browser.Events exposing (onKeyDown)
 import Css
@@ -7,77 +7,104 @@ import Html.Styled as Html exposing (Html, div, text)
 import Html.Styled.Attributes exposing (css)
 import Html.Styled.Events exposing (onClick)
 import Json.Decode as Decode
+import Task
 
 
-type Model modalKind
-    = Open modalKind
-    | Close
+type Model modalKind msg
+    = Opened modalKind msg
+    | Closed
+
+
+mapModel : (a -> b) -> Model a msg -> Model b msg
+mapModel f model =
+    case model of
+        Opened modalKind msg ->
+            Opened (f modalKind) msg
+
+        Closed ->
+            Closed
 
 
 type Msg
-    = CloseModal
+    = Close
     | NoOp
 
 
-type Modal msg
-    = Modal (Html msg)
+type ModalView msg
+    = ModalView (Html msg)
 
 
-map : (a -> b) -> Modal a -> Modal b
-map f (Modal html) =
-    Modal (Html.map f html)
+mapView : (a -> b) -> ModalView a -> ModalView b
+mapView f (ModalView html) =
+    ModalView (Html.map f html)
 
 
-modal : Html msg -> Modal msg
+modal : Html msg -> ModalView msg
 modal =
-    Modal
+    ModalView
 
 
-closed : Model modalKind
+kind : Model modalKind msg -> Maybe modalKind
+kind model =
+    case model of
+        Opened modalKind _ ->
+            Just modalKind
+
+        Closed ->
+            Nothing
+
+
+closed : Model modalKind msg
 closed =
-    Close
+    Closed
 
 
-open : modalKind -> Model modalKind
+open : modalKind -> msg -> Model modalKind msg
 open =
-    Open
+    Opened
 
 
-update : Msg -> Model modalKind -> Model modalKind
+update : Msg -> Model modalKind msg -> ( Model modalKind msg, Cmd msg )
 update msg model =
-    case msg of
-        CloseModal ->
-            Close
+    case ( msg, model ) of
+        ( Close, Opened _ onClose ) ->
+            ( Closed
+            , Task.succeed onClose |> Task.perform identity
+            )
 
-        NoOp ->
-            model
+        ( Close, Closed ) ->
+            ( Closed, Cmd.none )
+
+        ( NoOp, _ ) ->
+            ( model, Cmd.none )
 
 
 subscriptions : Sub Msg
 subscriptions =
-    onKeyDown (Decode.map toKey (Decode.field "key" Decode.string))
+    onKeyDown
+        (Decode.map
+            (\key ->
+                case key of
+                    "Escape" ->
+                        Close
+
+                    _ ->
+                        NoOp
+            )
+            (Decode.field "key" Decode.string)
+        )
 
 
-toKey : String -> Msg
-toKey key =
-    case key of
-        "Escape" ->
-            CloseModal
-
-        _ ->
-            NoOp
-
-
-view : (Msg -> msg) -> (modalKind -> Html msg) -> Model modalKind -> Maybe (Modal msg)
+view : (Msg -> msg) -> (modalKind -> Html msg) -> Model modalKind msg -> Maybe (ModalView msg)
 view toMsg modalKindContents model =
     (case model of
-        Open modalKind ->
+        Opened modalKind _ ->
             Just (modalKindContents modalKind |> viewModal toMsg)
 
-        Close ->
+        Closed ->
             Nothing
     )
-        |> Maybe.map Modal
+        |> Maybe.map ModalView
 
 
 viewModal : (Msg -> msg) -> Html msg -> Html msg
@@ -113,7 +140,7 @@ viewModalBackdrop toMsg =
                 [ Css.backgroundColor (Css.rgba 0 0 0 0.95)
                 ]
             ]
-        , onClick (toMsg CloseModal)
+        , onClick (toMsg Close)
         ]
         []
 
@@ -137,7 +164,7 @@ viewModelCloseButton toMsg =
                 , Css.backgroundColor (Css.hex "000")
                 ]
             ]
-        , onClick (toMsg CloseModal)
+        , onClick (toMsg Close)
         ]
         [ text "X" ]
 
@@ -164,6 +191,6 @@ viewModalContent toMsg content =
         ]
 
 
-toHtml : Modal msg -> Html msg
-toHtml (Modal html) =
+toHtml : ModalView msg -> Html msg
+toHtml (ModalView html) =
     html
