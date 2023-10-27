@@ -1,12 +1,12 @@
 module Shared exposing
-    ( Modal(..)
-    , Model
+    ( Model
     , Msg
     , ToBackend(..)
     , ToFrontend(..)
     , addZone
     , fromBackend
     , init
+    , mapMsg
     , showAddPlantingModal
     , showConfirmDeleteZoneModal
     , subscriptions
@@ -16,6 +16,7 @@ module Shared exposing
     )
 
 import Browser.Dom as Dom
+import Browser.Events exposing (onKeyDown)
 import Css
 import Css.Media
 import Data exposing (..)
@@ -23,6 +24,7 @@ import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
 import Html.Styled.Attributes as Attrs exposing (attribute, css)
 import Html.Styled.Events exposing (onClick, onInput)
+import Json.Decode as Decode
 import Maybe.Extra as Maybe
 import Random
 import RemoteData exposing (RemoteData)
@@ -35,29 +37,29 @@ import Ui.Color as Color
 import View exposing (View)
 
 
-addZone : Msg
+addZone : Msg pageMsg
 addZone =
     AddZone Nothing
 
 
-updateZone : Bool -> Zone -> Msg
+updateZone : Bool -> Zone -> Msg pageMsg
 updateZone =
     UpdateZone
 
 
-fromBackend : ToFrontend -> Msg
+fromBackend : ToFrontend -> Msg pageMsg
 fromBackend =
     FromBackend
 
 
-showAddPlantingModal : Zone -> Msg
-showAddPlantingModal zone =
-    ShowModal (AddPlantingModal <| AddPlantingModalStep1 zone)
+showAddPlantingModal : pageMsg -> Zone -> Msg pageMsg
+showAddPlantingModal returnFocusTo zone =
+    ShowModal returnFocusTo (AddPlantingModal (AddPlantingModalStep1 zone))
 
 
-showConfirmDeleteZoneModal : Zone -> Msg
-showConfirmDeleteZoneModal zone =
-    ShowModal (ConfirmDeleteZoneModal zone)
+showConfirmDeleteZoneModal : pageMsg -> Zone -> Msg pageMsg
+showConfirmDeleteZoneModal returnFocusTo zone =
+    ShowModal returnFocusTo (ConfirmDeleteZoneModal zone)
 
 
 
@@ -72,12 +74,15 @@ type alias Model =
             , crops : Dict Slug Crop
             , varieties : Dict Slug Variety
             }
-    , modal : Maybe Modal
     , now : Maybe Time.Posix
     }
 
 
-type Modal
+type Modal pageMsg
+    = Modal pageMsg ModalKind
+
+
+type ModalKind
     = AddPlantingModal AddPlantingStep
     | ConfirmDeleteZoneModal Zone
 
@@ -88,10 +93,9 @@ type AddPlantingStep
     | AddPlantingModalStep3 Zone Crop Variety Int
 
 
-init : { toBackend : ToBackend -> Cmd Msg } -> Request -> ( Model, Cmd Msg )
+init : { toBackend : ToBackend -> Cmd (Msg pageMsg) } -> Request -> ( Model, Cmd (Msg pageMsg) )
 init { toBackend } _ =
     ( { data = RemoteData.Loading
-      , modal = Nothing
       , now = Nothing
       }
     , Cmd.batch
@@ -105,19 +109,59 @@ init { toBackend } _ =
 -- UPDATE
 
 
-type Msg
+type Msg pageMsg
     = FromBackend ToFrontend
+    | ShowModal pageMsg ModalKind
+    | CloseModal
     | AddZone (Maybe Slug)
     | FocusZone Slug
     | UpdateZone Bool Zone
     | ConfirmDeleteZone Zone
-    | ShowModal Modal
-    | CloseModal
     | AdvanceAddPlantingModal AddPlantingStep
     | OnNewPlantingAmountChange String
     | AddPlanting Slug Slug Slug Int (Maybe Time.Posix)
     | GotCurrentTime Time.Posix
     | NoOp
+
+
+mapMsg : (pageMsgA -> pageMsgB) -> Msg pageMsgA -> Msg pageMsgB
+mapMsg fn msg =
+    case msg of
+        FromBackend toFrontend ->
+            FromBackend toFrontend
+
+        ShowModal pageMsg modal ->
+            ShowModal (fn pageMsg) modal
+
+        CloseModal ->
+            CloseModal
+
+        AddZone maybeSlug ->
+            AddZone maybeSlug
+
+        FocusZone slug ->
+            FocusZone slug
+
+        UpdateZone save zone ->
+            UpdateZone save zone
+
+        ConfirmDeleteZone zone ->
+            ConfirmDeleteZone zone
+
+        AdvanceAddPlantingModal step ->
+            AdvanceAddPlantingModal step
+
+        OnNewPlantingAmountChange amountStr ->
+            OnNewPlantingAmountChange amountStr
+
+        AddPlanting zoneSlug cropSlug varietySlug amount maybePosix ->
+            AddPlanting zoneSlug cropSlug varietySlug amount maybePosix
+
+        GotCurrentTime maybePosix ->
+            GotCurrentTime maybePosix
+
+        NoOp ->
+            NoOp
 
 
 type ToBackend
@@ -134,7 +178,15 @@ type ToFrontend
         }
 
 
-update : { toBackend : ToBackend -> Cmd Msg } -> Request -> Msg -> Model -> ( Model, Cmd Msg )
+update :
+    { toBackend : ToBackend -> Cmd (Msg pageMsg)
+    , wrapPageMsg : pageMsg -> frontendMsg
+    , wrapSharedMsg : Msg pageMsg -> frontendMsg
+    }
+    -> Request
+    -> Msg pageMsg
+    -> Model
+    -> ( Model, Cmd frontendMsg )
 update ({ toBackend } as config) req msg model =
     let
         andThen msg_ ( updatedModel, cmd ) =
@@ -154,7 +206,7 @@ update ({ toBackend } as config) req msg model =
             case maybeSlug of
                 Nothing ->
                     ( model
-                    , Random.generate (AddZone << Just) Slug.random
+                    , Random.generate (config.wrapSharedMsg << AddZone << Just) Slug.random
                     )
 
                 Just slug ->
@@ -172,6 +224,7 @@ update ({ toBackend } as config) req msg model =
 
         FocusZone slug ->
             ( model, Slug.map Dom.focus slug |> Task.attempt (always NoOp) )
+                |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
 
         UpdateZone save zone ->
             ( { model
@@ -190,6 +243,7 @@ update ({ toBackend } as config) req msg model =
               else
                 Cmd.none
             )
+                |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
 
         ConfirmDeleteZone zone ->
             ( { model
@@ -204,53 +258,76 @@ update ({ toBackend } as config) req msg model =
               }
             , toBackend (DeleteZone zone.slug)
             )
+                |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
                 |> andThen CloseModal
 
-        ShowModal modal ->
-            ( { model | modal = Just modal }
-            , Cmd.none
-            )
+        -- ShowModal returnFocusTo modal ->
+        --     ( { model | modal = Just (Modal modal) }
+        --     , Cmd.none
+        --     )
+        --         |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
+        ShowModal _ _ ->
+            ( model, Cmd.none )
 
         CloseModal ->
-            ( { model | modal = Nothing }
-            , Cmd.none
-            )
+            ( model, Cmd.none )
 
-        AdvanceAddPlantingModal step ->
-            ( { model | modal = Just (AddPlantingModal step) }
-            , Cmd.none
-            )
-
-        OnNewPlantingAmountChange amountStr ->
-            case ( model.modal, String.toInt amountStr ) of
-                ( Just (AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety _)), Just newAmount ) ->
-                    ( { model
-                        | modal = Just (AddPlantingModal <| AddPlantingModalStep3 zoneSlug crop variety newAmount)
-                      }
-                    , Cmd.none
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        AddPlanting zoneSlug cropSlug varietySlug amount maybePosix ->
-            case Maybe.or maybePosix model.now of
-                Nothing ->
-                    ( model, Time.now |> Task.perform (Just >> AddPlanting zoneSlug cropSlug varietySlug amount) )
-
-                Just now ->
-                    let
-                        planting =
-                            Planting cropSlug varietySlug amount now []
-                    in
-                    model.data
-                        |> RemoteData.map (.zones >> Dict.get (Slug.map identity) zoneSlug)
-                        |> RemoteData.toMaybe
-                        |> Maybe.andThen identity
-                        |> Maybe.map (\zone -> update config req (UpdateZone True { zone | plantings = planting :: zone.plantings }) model)
-                        |> Maybe.withDefault ( model, Cmd.none )
-                        |> andThen CloseModal
-
+        -- CloseModal ->
+        --     ( { model | modal = Nothing }
+        --     , Cmd.none
+        --     )
+        -- AdvanceAddPlantingModal step ->
+        --     ( { model
+        --         | modal =
+        --             Maybe.map
+        --                 (\(Modal returnFocusTo _) -> Modal returnFocusTo <| AddPlantingModal step)
+        --                 model.modal
+        --       }
+        --     , Cmd.none
+        --     )
+        -- OnNewPlantingAmountChange amountStr ->
+        --     case ( model.modal, String.toInt amountStr ) of
+        --         ( Just (Modal returnFocusTo (AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety _))), Just newAmount ) ->
+        --             ( { model
+        --                 | modal =
+        --                     Just
+        --                         (Modal returnFocusTo
+        --                             (AddPlantingModal (AddPlantingModalStep3 zoneSlug crop variety newAmount))
+        --                         )
+        --               }
+        --             , Cmd.none
+        --             )
+        --         _ ->
+        --             ( model, Cmd.none )
+        -- AddPlanting zoneSlug cropSlug varietySlug amount maybePosix ->
+        --     case Maybe.or maybePosix model.now of
+        --         Nothing ->
+        --             ( model
+        --             , Time.now
+        --                 |> Task.perform
+        --                     (Just >> AddPlanting zoneSlug cropSlug varietySlug amount)
+        --             )
+        --                 |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
+        --         Just now ->
+        --             let
+        --                 newPlanting =
+        --                     Planting cropSlug varietySlug amount now
+        --             in
+        --             model.data
+        --                 |> RemoteData.map (.zones >> Dict.get (Slug.map identity) zoneSlug)
+        --                 |> RemoteData.toMaybe
+        --                 |> Maybe.andThen identity
+        --                 |> Maybe.map
+        --                     (\zone ->
+        --                         update config
+        --                             req
+        --                             (UpdateZone True
+        --                                 { zone | plantings = newPlanting :: zone.plantings }
+        --                             )
+        --                             model
+        --                     )
+        --                 |> Maybe.withDefault ( model, Cmd.none )
+        --                 |> andThen CloseModal
         GotCurrentTime maybePosix ->
             ( { model | now = Just maybePosix }
             , Cmd.none
@@ -259,33 +336,66 @@ update ({ toBackend } as config) req msg model =
         NoOp ->
             ( model, Cmd.none )
 
+        _ ->
+            ( model, Cmd.none )
 
-subscriptions : Request -> Model -> Sub Msg
+
+subscriptions : Request -> Model -> Sub (Msg pageMsg)
 subscriptions _ _ =
-    Sub.none
+    onKeyDown (Decode.map toKey (Decode.field "key" Decode.string))
+
+
+toKey : String -> Msg pageMsg
+toKey key =
+    case key of
+        "Escape" ->
+            CloseModal
+
+        _ ->
+            NoOp
 
 
 
 -- VIEW
 
 
+addPlantingModalCropButtonId : Int -> String
+addPlantingModalCropButtonId index =
+    "add-planting-modal-crop-button-" ++ String.fromInt index
+
+
+addPlantingModalVarietyButtonId : Int -> String
+addPlantingModalVarietyButtonId index =
+    "add-planting-modal-variety-button-" ++ String.fromInt index
+
+
+addPlantingModalAmountInputId : String
+addPlantingModalAmountInputId =
+    "add-planting-modal-amount-input"
+
+
+deleteZoneModalConfirmButtonId : String
+deleteZoneModalConfirmButtonId =
+    "delete-zone-button"
+
+
 view :
     Request
-    -> { page : View msg, toMsg : Msg -> msg }
+    -> { page : View msg, toMsg : Msg pageMsg -> msg }
     -> Model
     -> View msg
 view _ { page, toMsg } model =
     { title = page.title
     , body =
-        [ (case model.modal of
-            Just modal_ ->
-                [ div [ attribute "inert" "true" ] page.body
-                , viewModal model modal_ |> Html.map toMsg
-                ]
-
-            Nothing ->
-                page.body
-          )
+        [ --     (case model.modal of
+          --     Just modal_ ->
+          --         [ div [ attribute "inert" "true" ] page.body
+          --         , viewModal model modal_ |> Html.map toMsg
+          --         ]
+          --     Nothing ->
+          --         page.body
+          --   )
+          page.body
             |> div
                 [ css
                     [ Css.fontFamily Css.sansSerif
@@ -304,7 +414,7 @@ view _ { page, toMsg } model =
     }
 
 
-viewModal : Model -> Modal -> Html Msg
+viewModal : Model -> Modal pageMsg -> Html (Msg pageMsg)
 viewModal model modal =
     Html.div
         [ css
@@ -321,10 +431,10 @@ viewModal model modal =
         [ viewModalBackdrop
         , viewModalContent <|
             case ( modal, model.data ) of
-                ( AddPlantingModal modalModel, RemoteData.Success data ) ->
+                ( Modal _ (AddPlantingModal modalModel), RemoteData.Success data ) ->
                     viewAddPlantingModal data modalModel
 
-                ( ConfirmDeleteZoneModal zone, _ ) ->
+                ( Modal _ (ConfirmDeleteZoneModal zone), _ ) ->
                     viewConfirmDeleteZoneModal zone
 
                 ( _, RemoteData.Loading ) ->
@@ -338,7 +448,7 @@ viewModal model modal =
         ]
 
 
-viewModalBackdrop : Html Msg
+viewModalBackdrop : Html (Msg pageMsg)
 viewModalBackdrop =
     div
         [ css
@@ -357,7 +467,7 @@ viewModalBackdrop =
         []
 
 
-viewModelCloseButton : Html Msg
+viewModelCloseButton : Html (Msg pageMsg)
 viewModelCloseButton =
     Html.button
         [ css
@@ -381,7 +491,7 @@ viewModelCloseButton =
         [ text "X" ]
 
 
-viewModalContent : Html Msg -> Html Msg
+viewModalContent : Html (Msg pageMsg) -> Html (Msg pageMsg)
 viewModalContent content =
     Html.div
         [ css
@@ -403,7 +513,7 @@ viewModalContent content =
         ]
 
 
-viewAddPlantingModal : { data | crops : Dict Slug Crop, varieties : Dict Slug Variety } -> AddPlantingStep -> Html Msg
+viewAddPlantingModal : { data | crops : Dict Slug Crop, varieties : Dict Slug Variety } -> AddPlantingStep -> Html (Msg pageMsg)
 viewAddPlantingModal { crops, varieties } modalModel =
     let
         largeButtonStyles =
@@ -425,10 +535,11 @@ viewAddPlantingModal { crops, varieties } modalModel =
     case modalModel of
         AddPlantingModalStep1 zoneSlug ->
             Dict.values crops
-                |> List.map
-                    (\crop ->
+                |> List.indexedMap
+                    (\i crop ->
                         Button.view (AdvanceAddPlantingModal (AddPlantingModalStep2 zoneSlug crop))
-                            [ css
+                            [ Attrs.id <| addPlantingModalCropButtonId i
+                            , css
                                 [ Color.styles crop.color
                                 , largeButtonStyles
                                 ]
@@ -439,10 +550,11 @@ viewAddPlantingModal { crops, varieties } modalModel =
 
         AddPlantingModalStep2 zoneSlug selectedCrop ->
             List.filterMap (\slug -> Dict.get (Slug.map identity) slug varieties) selectedCrop.varieties
-                |> List.map
-                    (\variety ->
+                |> List.indexedMap
+                    (\i variety ->
                         Button.view (AdvanceAddPlantingModal (AddPlantingModalStep3 zoneSlug selectedCrop variety 100))
-                            [ css
+                            [ Attrs.id <| addPlantingModalVarietyButtonId i
+                            , css
                                 [ Color.styles (Maybe.withDefault selectedCrop.color variety.color)
                                 , largeButtonStyles
                                 ]
@@ -461,7 +573,8 @@ viewAddPlantingModal { crops, varieties } modalModel =
             in
             Html.div [ css [ Css.displayFlex, Css.flexDirection Css.column, Css.alignItems Css.center, Css.padding (Css.em 1) ] ]
                 [ Html.input
-                    [ Attrs.type_ "range"
+                    [ Attrs.id addPlantingModalAmountInputId
+                    , Attrs.type_ "range"
                     , Attrs.min "0"
                     , Attrs.max (String.fromInt capacity)
                     , Attrs.step "5"
@@ -477,7 +590,7 @@ viewAddPlantingModal { crops, varieties } modalModel =
                 ]
 
 
-viewConfirmDeleteZoneModal : Zone -> Html Msg
+viewConfirmDeleteZoneModal : Zone -> Html (Msg pageMsg)
 viewConfirmDeleteZoneModal zone =
     Html.div
         [ css
@@ -494,7 +607,11 @@ viewConfirmDeleteZoneModal zone =
                 , Css.property "gap" "1em"
                 ]
             ]
-            [ Button.view (ConfirmDeleteZone zone) [ css [ Color.styles Color.Red ] ] [ Html.text "Delete" ]
+            [ Button.view (ConfirmDeleteZone zone)
+                [ Attrs.id deleteZoneModalConfirmButtonId
+                , css [ Color.styles Color.Red ]
+                ]
+                [ Html.text "Delete" ]
             , Button.view CloseModal [] [ Html.text "Cancel" ]
             ]
         ]

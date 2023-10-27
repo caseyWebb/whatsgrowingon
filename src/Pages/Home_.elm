@@ -29,6 +29,9 @@ type Msg
     | UpdateZone Bool Zone
     | ShowNewPlantingModal Zone
     | ShowConfirmDeleteZoneModal Zone
+    | FocusAddPlantingButton Slug
+    | FocusDeleteZoneModalButton Slug
+    | NoOp
 
 
 page : Shared.Model -> Request -> Page.With Model Msg
@@ -49,6 +52,9 @@ init =
 update : Msg -> Model -> ( Model, Effect Msg )
 update msg model =
     case msg of
+        NoOp ->
+            ( model, Effect.none )
+
         AddZone ->
             ( model, Effect.fromShared Shared.addZone )
 
@@ -56,10 +62,26 @@ update msg model =
             ( model, Effect.fromShared (Shared.updateZone save zone) )
 
         ShowNewPlantingModal zone ->
-            ( model, Effect.fromShared <| Shared.showAddPlantingModal zone )
+            ( model, Effect.fromShared <| Shared.showAddPlantingModal (FocusAddPlantingButton zone.slug) zone )
 
         ShowConfirmDeleteZoneModal zone ->
-            ( model, Effect.fromShared <| Shared.showConfirmDeleteZoneModal zone )
+            ( model, Effect.fromShared <| Shared.showConfirmDeleteZoneModal (FocusDeleteZoneModalButton zone.slug) zone )
+
+        FocusAddPlantingButton zoneSlug ->
+            ( model, Effect.focus (addPlantingButtonId zoneSlug) (always NoOp) )
+
+        FocusDeleteZoneModalButton zoneSlug ->
+            ( model, Effect.focus (confirmDeleteButtonId zoneSlug) (always NoOp) )
+
+
+addPlantingButtonId : Slug -> String
+addPlantingButtonId =
+    Slug.map ((++) "add-planting-btn--")
+
+
+confirmDeleteButtonId : Slug -> String
+confirmDeleteButtonId =
+    Slug.map ((++) "confirm-delete-btn--")
 
 
 view : Shared.Model -> Model -> View Msg
@@ -173,7 +195,8 @@ viewZone data now zone =
                 ]
                 []
             , Html.button
-                [ css
+                [ Attrs.id <| confirmDeleteButtonId zone.slug
+                , css
                     [ Css.backgroundColor (Css.rgba 0 0 0 0)
                     , Css.outline Css.none
                     , Css.border Css.zero
@@ -195,7 +218,8 @@ viewZone data now zone =
                 ++ (if capacity > 0 then
                         [ Button.view
                             (ShowNewPlantingModal zone)
-                            [ css
+                            [ Attrs.id <| addPlantingButtonId zone.slug
+                            , css
                                 [ Css.width (Css.pct (toFloat capacity))
                                 , Css.height (Css.px 90)
                                 , Css.display Css.inlineBlock

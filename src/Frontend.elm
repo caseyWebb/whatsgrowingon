@@ -7,7 +7,6 @@ import Effect
 import Gen.Model
 import Gen.Pages as Pages
 import Gen.Route as Route
-import Html.Styled exposing (Html)
 import Lamdera
 import Request
 import Shared
@@ -37,7 +36,7 @@ app =
         , onUrlChange = UrlChanged
         , update = update
         , updateFromBackend = updateFromBackend
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         , view = view
         }
 
@@ -54,7 +53,7 @@ init url key =
         ( page, effect ) =
             Pages.init (Route.fromUrl url) shared url key
     in
-    ( FrontendModel url key shared page
+    ( FrontendModel url key shared page Nothing
     , Cmd.batch
         [ Cmd.map Shared sharedCmd
         , Effect.toCmd ( Shared, Page ) effect
@@ -97,9 +96,11 @@ update msg model =
 
         Shared sharedMsg ->
             let
-                ( shared, sharedCmd ) =
+                ( shared, cmd ) =
                     Shared.update
                         { toBackend = Lamdera.sendToBackend << SharedToBackend
+                        , wrapPageMsg = Page
+                        , wrapSharedMsg = Shared
                         }
                         (Request.create () model.url model.key)
                         sharedMsg
@@ -111,14 +112,14 @@ update msg model =
             if page == Gen.Model.Redirecting_ then
                 ( { model | shared = shared, page = page }
                 , Cmd.batch
-                    [ Cmd.map Shared sharedCmd
+                    [ cmd
                     , Effect.toCmd ( Shared, Page ) effect
                     ]
                 )
 
             else
                 ( { model | shared = shared }
-                , Cmd.map Shared sharedCmd
+                , cmd
                 )
 
         Page pageMsg ->
@@ -139,18 +140,28 @@ updateFromBackend msg model =
     case msg of
         SharedToFrontend msg_ ->
             let
-                ( updatedSharedModel, sharedCmd ) =
+                ( updatedSharedModel, cmd ) =
                     Shared.update
                         { toBackend = Lamdera.sendToBackend << SharedToBackend
+                        , wrapPageMsg = Page
+                        , wrapSharedMsg = Shared
                         }
                         (Request.create () model.url model.key)
                         (Shared.fromBackend msg_)
                         model.shared
             in
-            ( { model | shared = updatedSharedModel }, Cmd.map Shared sharedCmd )
+            ( { model | shared = updatedSharedModel }, cmd )
 
         NoOpToFrontend ->
             ( model, Cmd.none )
+
+
+subscriptions : Model -> Sub FrontendMsg
+subscriptions model =
+    Sub.batch
+        [ Pages.subscriptions model.page model.shared model.url model.key |> Sub.map Page
+        , Shared.subscriptions (Request.create () model.url model.key) model.shared |> Sub.map Shared
+        ]
 
 
 view : Model -> Browser.Document FrontendMsg
