@@ -28,6 +28,8 @@ import Request exposing (Request)
 import Slug exposing (Slug)
 import Task
 import Time
+import Ui.Button as Button
+import Ui.Color as Color
 import View exposing (View)
 
 
@@ -46,9 +48,9 @@ fromBackend =
     FromBackend
 
 
-showAddPlantingModal : Slug -> Msg
-showAddPlantingModal zoneSlug =
-    ShowModal (AddPlantingModal <| AddPlantingModalStep1 zoneSlug)
+showAddPlantingModal : Zone -> Msg
+showAddPlantingModal zone =
+    ShowModal (AddPlantingModal <| AddPlantingModalStep1 zone)
 
 
 
@@ -73,9 +75,9 @@ type Modal
 
 
 type AddPlantingStep
-    = AddPlantingModalStep1 Slug
-    | AddPlantingModalStep2 Slug Slug
-    | AddPlantingModalStep3 Slug Slug Slug Int
+    = AddPlantingModalStep1 Zone
+    | AddPlantingModalStep2 Zone Crop
+    | AddPlantingModalStep3 Zone Crop Variety Int
 
 
 init : { toBackend : ToBackend -> Cmd Msg } -> Request -> ( Model, Cmd Msg )
@@ -202,7 +204,7 @@ update ({ toBackend } as config) req msg model =
                 Just now ->
                     let
                         planting =
-                            Planting cropSlug varietySlug (toFloat amount / 100) now []
+                            Planting cropSlug varietySlug amount now []
 
                         ( updatedModel, updateZoneCmd ) =
                             model.data
@@ -259,6 +261,8 @@ view _ { page, toMsg } model =
                     , Css.width (Css.pct 100)
                     , Css.minHeight (Css.vh 100)
                     , Css.overflow Css.auto
+                    , Css.padding (Css.em 1)
+                    , Css.boxSizing Css.borderBox
                     , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
                         [ Css.backgroundColor (Css.hex "030303")
                         , Css.color (Css.hex "ccc")
@@ -305,7 +309,7 @@ viewModalBackdrop =
             , Css.height (Css.pct 100)
             , Css.backgroundColor (Css.rgba 255 255 255 0.8)
             , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                [ Css.backgroundColor (Css.rgba 0 0 0 0.8)
+                [ Css.backgroundColor (Css.rgba 0 0 0 0.95)
                 ]
             ]
         , onClick CloseModal
@@ -322,19 +326,14 @@ viewModelCloseButton =
             , Css.right (Css.px -30)
             , Css.width (Css.px 30)
             , Css.height (Css.px 30)
-            , Css.borderRadius (Css.pct 50)
-            , Css.outline Css.none
             , Css.fontWeight Css.bold
-            , Css.fontSize (Css.px 20)
-            , Css.border3 (Css.px 3) Css.solid (Css.hex "111")
+            , Css.fontSize (Css.px 30)
+            , Css.border Css.zero
+            , Css.outline Css.none
             , Css.backgroundColor (Css.hex "fff")
-            , Css.hover
-                [ Css.backgroundColor (Css.hex "111")
-                , Css.color (Css.hex "fff")
-                ]
             , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
                 [ Css.color (Css.hex "fff")
-                , Css.backgroundColor (Css.rgba 0 0 0 1)
+                , Css.backgroundColor (Css.hex "000")
                 ]
             ]
         , onClick CloseModal
@@ -347,35 +346,32 @@ viewModalContent content =
     Html.div
         [ css
             [ Css.borderRadius (Css.px 6)
-            , Css.width (Css.px 600)
+            , Css.width (Css.px 1200)
             , Css.maxWidth (Css.vw 90)
             , Css.position Css.relative
-            , Css.padding2 Css.zero (Css.px 20)
             ]
         ]
         [ viewModelCloseButton
-        , content
+        , Html.div
+            [ css
+                [ Css.overflowX Css.hidden
+                , Css.overflowY Css.auto
+                , Css.maxHeight (Css.vh 100)
+                ]
+            ]
+            [ content ]
         ]
 
 
 viewAddPlantingModal : { data | crops : Dict Slug Crop, varieties : Dict Slug Variety } -> AddPlantingStep -> Html Msg
 viewAddPlantingModal { crops, varieties } modalModel =
     let
-        buttonStyles =
-            css
-                [ Css.padding (Css.em 1)
-                , Css.margin2 (Css.px 10) (Css.em 0.5)
-                , Css.fontWeight Css.bold
-                , Css.textTransform Css.uppercase
-                , Css.borderRadius (Css.px 6)
-                , Css.outline Css.none
-                , Css.border3 (Css.px 3) Css.solid (Css.hex "111")
-                , Css.backgroundColor (Css.hex "fff")
-                , Css.hover
-                    [ Css.backgroundColor (Css.hex "111")
-                    , Css.color (Css.hex "fff")
+        largeButtonStyles =
+            Css.important <|
+                Css.batch
+                    [ Css.padding2 (Css.em 2) (Css.em 5)
+                    , Css.margin2 (Css.px 10) (Css.em 0.5)
                     ]
-                ]
 
         wrappingFlexRow =
             Html.div
@@ -391,35 +387,43 @@ viewAddPlantingModal { crops, varieties } modalModel =
             Dict.values crops
                 |> List.map
                     (\crop ->
-                        Html.button
-                            [ buttonStyles
-                            , onClick (AdvanceAddPlantingModal (AddPlantingModalStep2 zoneSlug crop.slug))
+                        Button.view (AdvanceAddPlantingModal (AddPlantingModalStep2 zoneSlug crop))
+                            [ css
+                                [ Color.styles crop.color
+                                , largeButtonStyles
+                                ]
                             ]
                             [ Html.text crop.name ]
                     )
                 |> wrappingFlexRow
 
         AddPlantingModalStep2 zoneSlug selectedCrop ->
-            Dict.get (Slug.map identity) selectedCrop crops
-                |> Maybe.map .varieties
-                |> Maybe.withDefault []
-                |> List.filterMap (\slug -> Dict.get (Slug.map identity) slug varieties)
+            List.filterMap (\slug -> Dict.get (Slug.map identity) slug varieties) selectedCrop.varieties
                 |> List.map
                     (\variety ->
-                        Html.button
-                            [ buttonStyles
-                            , onClick (AdvanceAddPlantingModal (AddPlantingModalStep3 zoneSlug selectedCrop variety.slug 100))
+                        Button.view (AdvanceAddPlantingModal (AddPlantingModalStep3 zoneSlug selectedCrop variety 100))
+                            [ css
+                                [ Color.styles (Maybe.withDefault selectedCrop.color variety.color)
+                                , largeButtonStyles
+                                ]
                             ]
                             [ Html.text variety.name ]
                     )
                 |> wrappingFlexRow
 
-        AddPlantingModalStep3 zoneSlug selectedCrop selectedVariety amount ->
-            Html.div [ css [ Css.displayFlex, Css.flexDirection Css.column, Css.alignItems Css.center ] ]
+        AddPlantingModalStep3 zone selectedCrop selectedVariety desiredAmount ->
+            let
+                capacity =
+                    100 - List.sum (List.map .amount zone.plantings)
+
+                amount =
+                    min desiredAmount capacity
+            in
+            Html.div [ css [ Css.displayFlex, Css.flexDirection Css.column, Css.alignItems Css.center, Css.padding (Css.em 1) ] ]
                 [ Html.input
                     [ Attrs.type_ "range"
                     , Attrs.min "0"
-                    , Attrs.max "100"
+                    , Attrs.max (String.fromInt capacity)
                     , Attrs.step "5"
                     , Attrs.value (String.fromInt amount)
                     , onInput OnNewPlantingAmountChange
@@ -429,6 +433,5 @@ viewAddPlantingModal { crops, varieties } modalModel =
                     ]
                     []
                 , Html.p [] [ Html.text <| String.fromInt amount ++ "%" ]
-                , Html.button [ buttonStyles, onClick (AddPlanting zoneSlug selectedCrop selectedVariety amount Nothing) ]
-                    [ Html.text "Add" ]
+                , Button.view (AddPlanting zone.slug selectedCrop.slug selectedVariety.slug amount Nothing) [] [ Html.text "Add" ]
                 ]

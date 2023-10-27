@@ -7,13 +7,15 @@ import Effect exposing (Effect)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (Html, div, span)
 import Html.Styled.Attributes as Attrs exposing (css)
-import Html.Styled.Events exposing (onBlur, onClick, onInput)
+import Html.Styled.Events exposing (onBlur, onInput)
 import Page
 import RemoteData exposing (RemoteData(..))
 import Request exposing (Request)
 import Shared
 import Slug exposing (Slug)
 import Time
+import Ui.Button as Button
+import Ui.Color as Color
 import View exposing (View)
 
 
@@ -24,7 +26,7 @@ type alias Model =
 type Msg
     = AddZone
     | UpdateZone Bool Zone
-    | ShowNewPlantingModal Slug
+    | ShowNewPlantingModal Zone
 
 
 page : Shared.Model -> Request -> Page.With Model Msg
@@ -51,8 +53,8 @@ update msg model =
         UpdateZone save zone ->
             ( model, Effect.fromShared (Shared.updateZone save zone) )
 
-        ShowNewPlantingModal zoneSlug ->
-            ( model, Effect.fromShared <| Shared.showAddPlantingModal zoneSlug )
+        ShowNewPlantingModal zone ->
+            ( model, Effect.fromShared <| Shared.showAddPlantingModal zone )
 
 
 view : Shared.Model -> Model -> View Msg
@@ -78,43 +80,19 @@ view shared _ =
                         [ Css.displayFlex
                         , Css.flexDirection Css.column
                         , Css.alignItems Css.center
+                        , Css.color (Css.hex "333")
+                        , Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                            [ Css.color (Css.rgba 255 255 255 0.8)
+                            ]
                         ]
                     ]
                     [ viewZones data now
-                    , Html.button
-                        [ onClick AddZone
-                        , css
-                            [ Css.fontWeight Css.bold
-                            , Css.fontSize (Css.px 18)
-                            , Css.backgroundColor Css.inherit
-                            , Css.border3 (Css.px 3) Css.solid (Css.hex "333")
-                            , Css.padding2 (Css.em 0.5) (Css.em 1)
-                            , Css.outline Css.none
-                            , Css.borderRadius (Css.px 4)
-                            , Css.color (Css.hex "000")
-                            , Css.hover
-                                [ Css.borderColor (Css.hex "000")
-                                , Css.color (Css.hex "fff")
-                                , Css.backgroundColor (Css.hex "111")
-                                ]
-                            , Css.focus
-                                [ Css.borderColor (Css.hex "000")
-                                , Css.color (Css.hex "fff")
-                                , Css.outline3 (Css.px 5) Css.solid (Css.hex "000")
-                                , Css.outlineOffset (Css.px 5)
-                                ]
-                            , Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                                [ Css.color (Css.hex "fff")
-                                , Css.hover
-                                    [ Css.borderColor (Css.hex "fff")
-                                    , Css.color (Css.hex "fff")
-                                    ]
-                                , Css.focus
-                                    [ Css.borderColor (Css.hex "fff")
-                                    , Css.color (Css.hex "fff")
-                                    , Css.outlineColor (Css.hex "fff")
-                                    ]
-                                ]
+                    , Button.view AddZone
+                        [ css
+                            [ Css.width (Css.pct 100)
+                            , Css.padding (Css.em 2)
+                            , Css.marginTop (Css.em 3)
+                            , Css.maxWidth (Css.px 400)
                             ]
                         ]
                         [ Html.text "Add a new zone" ]
@@ -139,7 +117,8 @@ viewZones data now =
             , Css.listStyle Css.none
             , Css.width (Css.pct 100)
             , Css.maxWidth (Css.px 600)
-            , Css.property "gap" "1em"
+            , Css.padding Css.zero
+            , Css.boxSizing Css.borderBox
             ]
         ]
         (List.map (viewZone data now) (Dict.values data.zones |> List.sortBy .index))
@@ -154,12 +133,16 @@ viewZone :
     -> Zone
     -> Html Msg
 viewZone data now zone =
+    let
+        capacity =
+            100 - List.sum (List.map .amount zone.plantings)
+    in
     Html.li
         [ css
             [ Css.displayFlex
             , Css.flexDirection Css.column
             , Css.property "gap" "1em"
-            , Css.padding2 (Css.em 1) (Css.em 1)
+            , Css.padding2 (Css.em 1) Css.zero
             ]
         ]
         [ Html.input
@@ -176,61 +159,34 @@ viewZone data now zone =
             , onBlur (UpdateZone True zone)
             ]
             []
-        , div
+        , Html.ul
             [ css
-                [ Css.displayFlex
-                , Css.flexDirection Css.column
+                [ Css.paddingLeft Css.zero
+                , Css.height (Css.px 90)
+                , Css.displayFlex
                 ]
             ]
-            [ Html.ul
-                [ css
-                    [ Css.displayFlex
-                    , Css.flexDirection Css.row
-                    , Css.paddingLeft Css.zero
-                    , Css.property "gap" "10px"
-                    ]
-                ]
-              <|
-                List.map (viewPlanting data now) zone.plantings
-                    ++ [ Html.button
-                            [ onClick (ShowNewPlantingModal zone.slug)
-                            , css
-                                [ Css.fontWeight Css.bold
-                                , Css.fontSize (Css.px 18)
-                                , Css.backgroundColor Css.inherit
-                                , Css.flexGrow (Css.int 1)
-                                , Css.border3 (Css.px 1) Css.solid (Css.hex "333")
-                                , Css.padding2 (Css.em 0.5) (Css.em 1)
-                                , Css.outline Css.none
-                                , Css.borderRadius (Css.px 4)
-                                , Css.color (Css.hex "000")
-                                , Css.hover
-                                    [ Css.borderColor (Css.hex "000")
-                                    , Css.color (Css.hex "fff")
-                                    ]
-                                , Css.focus
-                                    [ Css.borderColor (Css.hex "000")
-                                    , Css.color (Css.hex "fff")
-                                    , Css.outline3 (Css.px 5) Css.solid (Css.hex "000")
-                                    , Css.outlineOffset (Css.px 5)
-                                    ]
-                                , Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                                    [ Css.color (Css.hex "fff")
-                                    , Css.hover
-                                        [ Css.borderColor (Css.hex "fff")
-                                        , Css.color (Css.hex "fff")
-                                        ]
-                                    , Css.focus
-                                        [ Css.borderColor (Css.hex "fff")
-                                        , Css.color (Css.hex "fff")
-                                        , Css.outlineColor (Css.hex "fff")
-                                        ]
+          <|
+            List.map (viewPlanting data now) zone.plantings
+                ++ (if capacity > 0 then
+                        [ Button.view
+                            (ShowNewPlantingModal zone)
+                            [ css
+                                [ Css.width (Css.pct (toFloat capacity))
+                                , Css.height (Css.px 90)
+                                , Css.display Css.inlineBlock
+                                , Css.pseudoClass "not(:first-child)"
+                                    [ Css.marginLeft (Css.em 1)
+                                    , Css.width (Css.calc (Css.pct (toFloat capacity)) Css.minus (Css.em 1))
                                     ]
                                 ]
                             ]
                             [ Html.text "+" ]
-                       ]
-            ]
+                        ]
+
+                    else
+                        []
+                   )
         ]
 
 
@@ -247,31 +203,50 @@ viewPlanting { crops, varieties } now planting =
         (\crop variety ->
             div
                 [ css
-                    [ Css.color (Css.hex "fff")
-                    , Css.backgroundColor (Css.hex "4c1010")
-                    , Css.padding (Css.px 20)
-                    , Css.borderRadius (Css.px 4)
-                    , Css.boxSizing Css.borderBox
-                    , Css.width (Css.calc (Css.pct <| planting.amount * 100) Css.minus (Css.px 5))
+                    [ Css.display Css.inlineBlock
+                    , Css.height (Css.px 90)
+                    , Css.width (Css.pct <| toFloat planting.amount)
+                    , Css.pseudoClass "not(:first-child)"
+                        [ Css.marginLeft (Css.em 1)
+                        , Css.width (Css.calc (Css.pct <| toFloat planting.amount) Css.minus (Css.em 1))
+                        ]
                     ]
                 ]
-                [ span
+                [ div
                     [ css
-                        [ Css.textTransform Css.uppercase
-                        , Css.fontWeight Css.bold
-                        , Css.fontSize (Css.px 18)
+                        [ Color.styles crop.color
+                        , Css.overflow Css.hidden
+                        , Css.padding (Css.px 20)
+                        , Css.borderRadius (Css.px 4)
+                        , Css.whiteSpace Css.noWrap
+                        , Css.hover
+                            [ Css.property "min-width" "fit-content"
+                            , Css.zIndex (Css.int 1)
+                            , Css.position Css.relative
+
+                            -- , Css.borderRight3 (Css.em 1) Css.solid (Css.hex "111")
+                            , Css.outline3 (Css.em 1) Css.solid (Css.hex "111")
+                            ]
                         ]
                     ]
-                    [ Html.text crop.name ]
-                , span
-                    [ css
-                        [ Css.fontSize (Css.px 12)
-                        , Css.displayFlex
-                        , Css.flexDirection Css.column
+                    [ span
+                        [ css
+                            [ Css.textTransform Css.uppercase
+                            , Css.fontWeight Css.bold
+                            , Css.fontSize (Css.px 18)
+                            ]
                         ]
-                    ]
-                    [ span [] [ Html.text variety.name ]
-                    , span [] [ viewDaysAgo now planting.time ]
+                        [ Html.text crop.name ]
+                    , span
+                        [ css
+                            [ Css.fontSize (Css.px 12)
+                            , Css.displayFlex
+                            , Css.flexDirection Css.column
+                            ]
+                        ]
+                        [ span [] [ Html.text variety.name ]
+                        , span [] [ viewDaysAgo now planting.time ]
+                        ]
                     ]
                 ]
         )
