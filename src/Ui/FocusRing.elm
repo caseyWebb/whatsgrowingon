@@ -7,7 +7,7 @@ import Css.Media exposing (withMediaQuery)
 focusRing : Style
 focusRing =
     batch
-        [ focus
+        [ pseudoClass "focus-visible"
             [ outline3 (px 5) solid (hex "4f518c")
             , outlineOffset (px 5)
             , borderRadius (px 5)
