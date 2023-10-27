@@ -8,9 +8,9 @@ import Time
 
 
 type AddPlantingStep
-    = AddPlantingModalStep1 Evergreen.V1.Slug.Slug
-    | AddPlantingModalStep2 Evergreen.V1.Slug.Slug Evergreen.V1.Slug.Slug
-    | AddPlantingModalStep3 Evergreen.V1.Slug.Slug Evergreen.V1.Slug.Slug Evergreen.V1.Slug.Slug Int
+    = AddPlantingModalStep1 Evergreen.V1.Data.Zone
+    | AddPlantingModalStep2 Evergreen.V1.Data.Zone Evergreen.V1.Data.Crop
+    | AddPlantingModalStep3 Evergreen.V1.Data.Zone Evergreen.V1.Data.Crop Evergreen.V1.Data.Variety Int
 
 
 type Modal
