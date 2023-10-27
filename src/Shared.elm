@@ -4,11 +4,9 @@ module Shared exposing
     , ToBackend(..)
     , ToFrontend(..)
     , addZone
+    , deleteZone
     , fromBackend
     , init
-    , mapMsg
-    , showAddPlantingModal
-    , showConfirmDeleteZoneModal
     , subscriptions
     , update
     , updateZone
@@ -32,34 +30,33 @@ import Request exposing (Request)
 import Slug exposing (Slug)
 import Task
 import Time
-import Ui.Button as Button
-import Ui.Color as Color
 import View exposing (View)
 
 
-addZone : Msg pageMsg
+addZone : Msg
 addZone =
     AddZone Nothing
 
 
-updateZone : Bool -> Zone -> Msg pageMsg
+updateZone : Bool -> Zone -> Msg
 updateZone =
     UpdateZone
 
 
-fromBackend : ToFrontend -> Msg pageMsg
+fromBackend : ToFrontend -> Msg
 fromBackend =
     FromBackend
 
 
-showAddPlantingModal : pageMsg -> Zone -> Msg pageMsg
-showAddPlantingModal returnFocusTo zone =
-    ShowModal returnFocusTo (AddPlantingModal (AddPlantingModalStep1 zone))
+
+-- showAddPlantingModal : pageMsg -> Zone -> Msg pageMsg
+-- showAddPlantingModal returnFocusTo zone =
+--     ShowModal returnFocusTo (AddPlantingModal (AddPlantingModalStep1 zone))
 
 
-showConfirmDeleteZoneModal : pageMsg -> Zone -> Msg pageMsg
-showConfirmDeleteZoneModal returnFocusTo zone =
-    ShowModal returnFocusTo (ConfirmDeleteZoneModal zone)
+deleteZone : Slug -> Msg
+deleteZone =
+    DeleteZone
 
 
 
@@ -78,22 +75,13 @@ type alias Model =
     }
 
 
-type Modal pageMsg
-    = Modal pageMsg ModalKind
-
-
-type ModalKind
-    = AddPlantingModal AddPlantingStep
-    | ConfirmDeleteZoneModal Zone
-
-
 type AddPlantingStep
     = AddPlantingModalStep1 Zone
     | AddPlantingModalStep2 Zone Crop
     | AddPlantingModalStep3 Zone Crop Variety Int
 
 
-init : { toBackend : ToBackend -> Cmd (Msg pageMsg) } -> Request -> ( Model, Cmd (Msg pageMsg) )
+init : { toBackend : ToBackend -> Cmd Msg } -> Request -> ( Model, Cmd Msg )
 init { toBackend } _ =
     ( { data = RemoteData.Loading
       , now = Nothing
@@ -109,14 +97,13 @@ init { toBackend } _ =
 -- UPDATE
 
 
-type Msg pageMsg
+type Msg
     = FromBackend ToFrontend
-    | ShowModal pageMsg ModalKind
     | CloseModal
     | AddZone (Maybe Slug)
+    | DeleteZone Slug
     | FocusZone Slug
     | UpdateZone Bool Zone
-    | ConfirmDeleteZone Zone
     | AdvanceAddPlantingModal AddPlantingStep
     | OnNewPlantingAmountChange String
     | AddPlanting Slug Slug Slug Int (Maybe Time.Posix)
@@ -124,50 +111,10 @@ type Msg pageMsg
     | NoOp
 
 
-mapMsg : (pageMsgA -> pageMsgB) -> Msg pageMsgA -> Msg pageMsgB
-mapMsg fn msg =
-    case msg of
-        FromBackend toFrontend ->
-            FromBackend toFrontend
-
-        ShowModal pageMsg modal ->
-            ShowModal (fn pageMsg) modal
-
-        CloseModal ->
-            CloseModal
-
-        AddZone maybeSlug ->
-            AddZone maybeSlug
-
-        FocusZone slug ->
-            FocusZone slug
-
-        UpdateZone save zone ->
-            UpdateZone save zone
-
-        ConfirmDeleteZone zone ->
-            ConfirmDeleteZone zone
-
-        AdvanceAddPlantingModal step ->
-            AdvanceAddPlantingModal step
-
-        OnNewPlantingAmountChange amountStr ->
-            OnNewPlantingAmountChange amountStr
-
-        AddPlanting zoneSlug cropSlug varietySlug amount maybePosix ->
-            AddPlanting zoneSlug cropSlug varietySlug amount maybePosix
-
-        GotCurrentTime maybePosix ->
-            GotCurrentTime maybePosix
-
-        NoOp ->
-            NoOp
-
-
 type ToBackend
     = FetchData
     | SaveZone Zone
-    | DeleteZone Slug
+    | DeleteZoneToBackend Slug
 
 
 type ToFrontend
@@ -179,14 +126,12 @@ type ToFrontend
 
 
 update :
-    { toBackend : ToBackend -> Cmd (Msg pageMsg)
-    , wrapPageMsg : pageMsg -> frontendMsg
-    , wrapSharedMsg : Msg pageMsg -> frontendMsg
+    { toBackend : ToBackend -> Cmd Msg
     }
     -> Request
-    -> Msg pageMsg
+    -> Msg
     -> Model
-    -> ( Model, Cmd frontendMsg )
+    -> ( Model, Cmd Msg )
 update ({ toBackend } as config) req msg model =
     let
         andThen msg_ ( updatedModel, cmd ) =
@@ -206,7 +151,7 @@ update ({ toBackend } as config) req msg model =
             case maybeSlug of
                 Nothing ->
                     ( model
-                    , Random.generate (config.wrapSharedMsg << AddZone << Just) Slug.random
+                    , Random.generate (AddZone << Just) Slug.random
                     )
 
                 Just slug ->
@@ -224,7 +169,6 @@ update ({ toBackend } as config) req msg model =
 
         FocusZone slug ->
             ( model, Slug.map Dom.focus slug |> Task.attempt (always NoOp) )
-                |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
 
         UpdateZone save zone ->
             ( { model
@@ -243,42 +187,33 @@ update ({ toBackend } as config) req msg model =
               else
                 Cmd.none
             )
-                |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
 
-        ConfirmDeleteZone zone ->
+        DeleteZone zone ->
             ( { model
                 | data =
                     RemoteData.map
                         (\data ->
                             { data
-                                | zones = Dict.remove (Slug.map identity) zone.slug data.zones
+                                | zones = Dict.remove (Slug.map identity) zone data.zones
                             }
                         )
                         model.data
               }
-            , toBackend (DeleteZone zone.slug)
+            , toBackend (DeleteZoneToBackend zone)
             )
-                |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
-                |> andThen CloseModal
 
         -- ShowModal returnFocusTo modal ->
         --     ( { model | modal = Just (Modal modal) }
         --     , Cmd.none
         --     )
         --         |> Tuple.mapSecond (Cmd.map config.wrapSharedMsg)
-        ShowModal _ _ ->
-            ( model, Cmd.none )
-
-        CloseModal ->
-            ( model, Cmd.none )
-
         -- CloseModal ->
         --     ( { model | modal = Nothing }
         --     , Cmd.none
         --     )
         -- AdvanceAddPlantingModal step ->
         --     ( { model
-        --         | modal =
+        --        | modal =
         --             Maybe.map
         --                 (\(Modal returnFocusTo _) -> Modal returnFocusTo <| AddPlantingModal step)
         --                 model.modal
@@ -340,19 +275,9 @@ update ({ toBackend } as config) req msg model =
             ( model, Cmd.none )
 
 
-subscriptions : Request -> Model -> Sub (Msg pageMsg)
+subscriptions : Request -> Model -> Sub Msg
 subscriptions _ _ =
-    onKeyDown (Decode.map toKey (Decode.field "key" Decode.string))
-
-
-toKey : String -> Msg pageMsg
-toKey key =
-    case key of
-        "Escape" ->
-            CloseModal
-
-        _ ->
-            NoOp
+    Sub.none
 
 
 
@@ -374,244 +299,31 @@ addPlantingModalAmountInputId =
     "add-planting-modal-amount-input"
 
 
-deleteZoneModalConfirmButtonId : String
-deleteZoneModalConfirmButtonId =
-    "delete-zone-button"
-
-
 view :
     Request
-    -> { page : View msg, toMsg : Msg pageMsg -> msg }
-    -> Model
+    ->
+        { page : View msg
+        , toMsg : Msg -> msg
+        }
     -> View msg
-view _ { page, toMsg } model =
+view _ { page } =
     { title = page.title
     , body =
-        [ --     (case model.modal of
-          --     Just modal_ ->
-          --         [ div [ attribute "inert" "true" ] page.body
-          --         , viewModal model modal_ |> Html.map toMsg
-          --         ]
-          --     Nothing ->
-          --         page.body
-          --   )
-          page.body
-            |> div
-                [ css
-                    [ Css.fontFamily Css.sansSerif
-                    , Css.width (Css.pct 100)
-                    , Css.minHeight (Css.vh 100)
-                    , Css.overflow Css.auto
-                    , Css.padding (Css.em 1)
-                    , Css.boxSizing Css.borderBox
-                    , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                        [ Css.backgroundColor (Css.hex "030303")
-                        , Css.color (Css.hex "ccc")
-                        ]
+        [ div
+            [ css
+                [ Css.fontFamily Css.sansSerif
+                , Css.width (Css.pct 100)
+                , Css.minHeight (Css.vh 100)
+                , Css.overflow Css.auto
+                , Css.padding (Css.em 1)
+                , Css.boxSizing Css.borderBox
+                , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                    [ Css.backgroundColor (Css.hex "030303")
+                    , Css.color (Css.hex "ccc")
                     ]
                 ]
+            ]
+            page.body
         ]
+    , modal = page.modal
     }
-
-
-viewModal : Model -> Modal pageMsg -> Html (Msg pageMsg)
-viewModal model modal =
-    Html.div
-        [ css
-            [ Css.displayFlex
-            , Css.justifyContent Css.center
-            , Css.alignItems Css.center
-            , Css.position Css.fixed
-            , Css.top Css.zero
-            , Css.right Css.zero
-            , Css.bottom Css.zero
-            , Css.left Css.zero
-            ]
-        ]
-        [ viewModalBackdrop
-        , viewModalContent <|
-            case ( modal, model.data ) of
-                ( Modal _ (AddPlantingModal modalModel), RemoteData.Success data ) ->
-                    viewAddPlantingModal data modalModel
-
-                ( Modal _ (ConfirmDeleteZoneModal zone), _ ) ->
-                    viewConfirmDeleteZoneModal zone
-
-                ( _, RemoteData.Loading ) ->
-                    Html.text "Loading..."
-
-                ( _, RemoteData.Failure _ ) ->
-                    Html.text "Something went wrong..."
-
-                ( _, RemoteData.NotAsked ) ->
-                    Html.text "Something when wrong..."
-        ]
-
-
-viewModalBackdrop : Html (Msg pageMsg)
-viewModalBackdrop =
-    div
-        [ css
-            [ Css.position Css.fixed
-            , Css.top (Css.px 0)
-            , Css.left (Css.px 0)
-            , Css.width (Css.pct 100)
-            , Css.height (Css.pct 100)
-            , Css.backgroundColor (Css.rgba 255 255 255 0.8)
-            , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                [ Css.backgroundColor (Css.rgba 0 0 0 0.95)
-                ]
-            ]
-        , onClick CloseModal
-        ]
-        []
-
-
-viewModelCloseButton : Html (Msg pageMsg)
-viewModelCloseButton =
-    Html.button
-        [ css
-            [ Css.position Css.absolute
-            , Css.top (Css.px -30)
-            , Css.right (Css.px -30)
-            , Css.width (Css.px 30)
-            , Css.height (Css.px 30)
-            , Css.fontWeight Css.bold
-            , Css.fontSize (Css.px 30)
-            , Css.border Css.zero
-            , Css.outline Css.none
-            , Css.backgroundColor (Css.hex "fff")
-            , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                [ Css.color (Css.hex "fff")
-                , Css.backgroundColor (Css.hex "000")
-                ]
-            ]
-        , onClick CloseModal
-        ]
-        [ text "X" ]
-
-
-viewModalContent : Html (Msg pageMsg) -> Html (Msg pageMsg)
-viewModalContent content =
-    Html.div
-        [ css
-            [ Css.borderRadius (Css.px 6)
-            , Css.width (Css.px 1200)
-            , Css.maxWidth (Css.vw 90)
-            , Css.position Css.relative
-            ]
-        ]
-        [ viewModelCloseButton
-        , Html.div
-            [ css
-                [ Css.overflowX Css.hidden
-                , Css.overflowY Css.auto
-                , Css.maxHeight (Css.vh 100)
-                ]
-            ]
-            [ content ]
-        ]
-
-
-viewAddPlantingModal : { data | crops : Dict Slug Crop, varieties : Dict Slug Variety } -> AddPlantingStep -> Html (Msg pageMsg)
-viewAddPlantingModal { crops, varieties } modalModel =
-    let
-        largeButtonStyles =
-            Css.important <|
-                Css.batch
-                    [ Css.padding2 (Css.em 2) (Css.em 5)
-                    , Css.margin2 (Css.px 10) (Css.em 0.5)
-                    ]
-
-        wrappingFlexRow =
-            Html.div
-                [ css
-                    [ Css.displayFlex
-                    , Css.flexWrap Css.wrap
-                    , Css.justifyContent Css.center
-                    ]
-                ]
-    in
-    case modalModel of
-        AddPlantingModalStep1 zoneSlug ->
-            Dict.values crops
-                |> List.indexedMap
-                    (\i crop ->
-                        Button.view (AdvanceAddPlantingModal (AddPlantingModalStep2 zoneSlug crop))
-                            [ Attrs.id <| addPlantingModalCropButtonId i
-                            , css
-                                [ Color.styles crop.color
-                                , largeButtonStyles
-                                ]
-                            ]
-                            [ Html.text crop.name ]
-                    )
-                |> wrappingFlexRow
-
-        AddPlantingModalStep2 zoneSlug selectedCrop ->
-            List.filterMap (\slug -> Dict.get (Slug.map identity) slug varieties) selectedCrop.varieties
-                |> List.indexedMap
-                    (\i variety ->
-                        Button.view (AdvanceAddPlantingModal (AddPlantingModalStep3 zoneSlug selectedCrop variety 100))
-                            [ Attrs.id <| addPlantingModalVarietyButtonId i
-                            , css
-                                [ Color.styles (Maybe.withDefault selectedCrop.color variety.color)
-                                , largeButtonStyles
-                                ]
-                            ]
-                            [ Html.text variety.name ]
-                    )
-                |> wrappingFlexRow
-
-        AddPlantingModalStep3 zone selectedCrop selectedVariety desiredAmount ->
-            let
-                capacity =
-                    100 - List.sum (List.map .amount zone.plantings)
-
-                amount =
-                    min desiredAmount capacity
-            in
-            Html.div [ css [ Css.displayFlex, Css.flexDirection Css.column, Css.alignItems Css.center, Css.padding (Css.em 1) ] ]
-                [ Html.input
-                    [ Attrs.id addPlantingModalAmountInputId
-                    , Attrs.type_ "range"
-                    , Attrs.min "0"
-                    , Attrs.max (String.fromInt capacity)
-                    , Attrs.step "5"
-                    , Attrs.value (String.fromInt amount)
-                    , onInput OnNewPlantingAmountChange
-                    , css
-                        [ Css.width (Css.pct 100)
-                        ]
-                    ]
-                    []
-                , Html.p [] [ Html.text <| String.fromInt amount ++ "%" ]
-                , Button.view (AddPlanting zone.slug selectedCrop.slug selectedVariety.slug amount Nothing) [] [ Html.text "Add" ]
-                ]
-
-
-viewConfirmDeleteZoneModal : Zone -> Html (Msg pageMsg)
-viewConfirmDeleteZoneModal zone =
-    Html.div
-        [ css
-            [ Css.padding (Css.em 1)
-            , Css.displayFlex
-            , Css.flexDirection Css.column
-            , Css.alignItems Css.center
-            ]
-        ]
-        [ Html.p [] [ Html.text <| "Are you sure you want to delete " ++ zone.name ++ "?" ]
-        , Html.div
-            [ css
-                [ Css.displayFlex
-                , Css.property "gap" "1em"
-                ]
-            ]
-            [ Button.view (ConfirmDeleteZone zone)
-                [ Attrs.id deleteZoneModalConfirmButtonId
-                , css [ Color.styles Color.Red ]
-                ]
-                [ Html.text "Delete" ]
-            , Button.view CloseModal [] [ Html.text "Cancel" ]
-            ]
-        ]

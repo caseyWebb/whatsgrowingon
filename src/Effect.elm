@@ -22,7 +22,7 @@ import Task
 type Effect msg
     = None
     | Cmd (Cmd msg)
-    | Shared (Shared.Msg msg)
+    | Shared Shared.Msg
     | Batch (List (Effect msg))
     | Focus String (Result Dom.Error () -> msg)
 
@@ -42,7 +42,7 @@ map fn effect =
             Cmd (Cmd.map fn cmd)
 
         Shared msg ->
-            Shared (Shared.mapMsg fn msg)
+            Shared msg
 
         Batch list ->
             Batch (List.map (map fn) list)
@@ -56,7 +56,7 @@ fromCmd =
     Cmd
 
 
-fromShared : Shared.Msg msg -> Effect msg
+fromShared : Shared.Msg -> Effect msg
 fromShared =
     Shared
 
@@ -75,7 +75,12 @@ focus =
 -- Used by Main.elm
 
 
-toCmd : ( Shared.Msg pageMsg -> msg, pageMsg -> msg ) -> Effect pageMsg -> Cmd msg
+toCmd :
+    ( Shared.Msg -> msg
+    , pageMsg -> msg
+    )
+    -> Effect pageMsg
+    -> Cmd msg
 toCmd ( fromSharedMsg, fromPageMsg ) effect =
     case effect of
         None ->

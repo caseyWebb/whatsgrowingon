@@ -5,7 +5,6 @@ import Browser.Navigation exposing (Key)
 import Data exposing (..)
 import Gen.Pages as Pages
 import GenericDict exposing (Dict)
-import Modal exposing (Modal)
 import Shared
 import Slug exposing (Slug)
 import Url exposing (Url)
@@ -16,7 +15,6 @@ type alias FrontendModel =
     , key : Key
     , shared : Shared.Model
     , page : Pages.Model
-    , modal : Maybe Modal
     }
 
 
@@ -30,7 +28,7 @@ type alias BackendModel =
 type FrontendMsg
     = UrlClicked UrlRequest
     | UrlChanged Url
-    | Shared (Shared.Msg Pages.Msg)
+    | Shared Shared.Msg
     | Page Pages.Msg
     | NoOpFrontendMsg
 

@@ -5,7 +5,7 @@ import Css.Media as Media
 import Data exposing (..)
 import Effect exposing (Effect)
 import GenericDict as Dict exposing (Dict)
-import Html.Styled as Html exposing (Html, div, span)
+import Html.Styled as Html exposing (Html, div, p, span)
 import Html.Styled.Attributes as Attrs exposing (css)
 import Html.Styled.Events exposing (onBlur, onClick, onInput)
 import Page
@@ -17,18 +17,26 @@ import Time
 import Ui.Button as Button
 import Ui.Color as Color
 import Ui.FocusRing exposing (focusRing)
+import Ui.Modal
 import View exposing (View)
 
 
 type alias Model =
-    ()
+    { modal : Ui.Modal.Model Modal }
+
+
+type Modal
+    = ConfirmDeleteZoneModal Zone
 
 
 type Msg
     = AddZone
     | UpdateZone Bool Zone
+    | DeleteZone Slug
     | ShowNewPlantingModal Zone
     | ShowConfirmDeleteZoneModal Zone
+    | CloseModal
+    | ModalMsg Ui.Modal.Msg
     | FocusAddPlantingButton Slug
     | FocusDeleteZoneModalButton Slug
     | NoOp
@@ -46,7 +54,10 @@ page shared _ =
 
 init : ( Model, Effect Msg )
 init =
-    ( (), Effect.none )
+    ( { modal = Ui.Modal.closed
+      }
+    , Effect.none
+    )
 
 
 update : Msg -> Model -> ( Model, Effect Msg )
@@ -61,12 +72,24 @@ update msg model =
         UpdateZone save zone ->
             ( model, Effect.fromShared (Shared.updateZone save zone) )
 
+        DeleteZone slug ->
+            ( { model | modal = Ui.Modal.closed }, Effect.fromShared (Shared.deleteZone slug) )
+
         ShowNewPlantingModal zone ->
-            ( model, Effect.fromShared <| Shared.showAddPlantingModal (FocusAddPlantingButton zone.slug) zone )
+            ( model, Effect.none )
 
         ShowConfirmDeleteZoneModal zone ->
-            ( model, Effect.fromShared <| Shared.showConfirmDeleteZoneModal (FocusDeleteZoneModalButton zone.slug) zone )
+            ( { model | modal = Ui.Modal.open (ConfirmDeleteZoneModal zone) }
+            , Effect.none
+            )
 
+        CloseModal ->
+            ( { model | modal = Ui.Modal.closed }, Effect.none )
+
+        ModalMsg modalMsg ->
+            ( { model | modal = Ui.Modal.update modalMsg model.modal }, Effect.none )
+
+        -- ( model, Effect.fromShared <| Shared.showConfirmDeleteZoneModal (FocusDeleteZoneModalButton zone.slug) zone )
         FocusAddPlantingButton zoneSlug ->
             ( model, Effect.focus (addPlantingButtonId zoneSlug) (always NoOp) )
 
@@ -85,7 +108,7 @@ confirmDeleteButtonId =
 
 
 view : Shared.Model -> Model -> View Msg
-view shared _ =
+view shared model =
     { title = "What's growing on!?"
     , body =
         case ( shared.data, shared.now ) of
@@ -125,6 +148,7 @@ view shared _ =
                         [ Html.text "Add a new zone" ]
                     ]
                 ]
+    , modal = Ui.Modal.view ModalMsg viewModal model.modal
     }
 
 
@@ -271,8 +295,6 @@ viewPlanting { crops, varieties } now planting =
                             [ Css.property "min-width" "fit-content"
                             , Css.zIndex (Css.int 1)
                             , Css.position Css.relative
-
-                            -- , Css.borderRight3 (Css.em 1) Css.solid (Css.hex "111")
                             , Css.outline3 (Css.em 1) Css.solid (Css.hex "111")
                             ]
                         ]
@@ -313,3 +335,42 @@ viewDaysAgo now timestamp =
             (Time.toMillis Time.utc now - Time.toMillis Time.utc timestamp) // millisInDay
     in
     Html.text (String.fromInt daysSince ++ " days ago")
+
+
+viewModal : Modal -> Html Msg
+viewModal modalKind =
+    case modalKind of
+        ConfirmDeleteZoneModal zone ->
+            deleteZoneModal zone
+
+
+deleteZoneModalConfirmButtonId : String
+deleteZoneModalConfirmButtonId =
+    "delete-zone-button"
+
+
+deleteZoneModal : Zone -> Html Msg
+deleteZoneModal zone =
+    div
+        [ css
+            [ Css.padding (Css.em 1)
+            , Css.displayFlex
+            , Css.flexDirection Css.column
+            , Css.alignItems Css.center
+            ]
+        ]
+        [ p [] [ Html.text <| "Are you sure you want to delete " ++ zone.name ++ "?" ]
+        , div
+            [ css
+                [ Css.displayFlex
+                , Css.property "gap" "1em"
+                ]
+            ]
+            [ Button.view (DeleteZone zone.slug)
+                [ Attrs.id deleteZoneModalConfirmButtonId
+                , css [ Color.styles Color.Red ]
+                ]
+                [ Html.text "Delete" ]
+            , Button.view CloseModal [] [ Html.text "Cancel" ]
+            ]
+        ]

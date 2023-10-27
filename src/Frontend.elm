@@ -53,7 +53,7 @@ init url key =
         ( page, effect ) =
             Pages.init (Route.fromUrl url) shared url key
     in
-    ( FrontendModel url key shared page Nothing
+    ( FrontendModel url key shared page
     , Cmd.batch
         [ Cmd.map Shared sharedCmd
         , Effect.toCmd ( Shared, Page ) effect
@@ -88,7 +88,10 @@ update msg model =
                         Pages.init (Route.fromUrl url) model.shared url model.key
                 in
                 ( { model | url = url, page = page }
-                , Cmd.batch [ Effect.toCmd ( Shared, Page ) effect, scrollPageToTop ]
+                , Cmd.batch
+                    [ Effect.toCmd ( Shared, Page ) effect
+                    , scrollPageToTop
+                    ]
                 )
 
             else
@@ -99,8 +102,6 @@ update msg model =
                 ( shared, cmd ) =
                     Shared.update
                         { toBackend = Lamdera.sendToBackend << SharedToBackend
-                        , wrapPageMsg = Page
-                        , wrapSharedMsg = Shared
                         }
                         (Request.create () model.url model.key)
                         sharedMsg
@@ -112,14 +113,14 @@ update msg model =
             if page == Gen.Model.Redirecting_ then
                 ( { model | shared = shared, page = page }
                 , Cmd.batch
-                    [ cmd
+                    [ cmd |> Cmd.map Shared
                     , Effect.toCmd ( Shared, Page ) effect
                     ]
                 )
 
             else
                 ( { model | shared = shared }
-                , cmd
+                , cmd |> Cmd.map Shared
                 )
 
         Page pageMsg ->
@@ -143,14 +144,12 @@ updateFromBackend msg model =
                 ( updatedSharedModel, cmd ) =
                     Shared.update
                         { toBackend = Lamdera.sendToBackend << SharedToBackend
-                        , wrapPageMsg = Page
-                        , wrapSharedMsg = Shared
                         }
                         (Request.create () model.url model.key)
                         (Shared.fromBackend msg_)
                         model.shared
             in
-            ( { model | shared = updatedSharedModel }, cmd )
+            ( { model | shared = updatedSharedModel }, cmd |> Cmd.map Shared )
 
         NoOpToFrontend ->
             ( model, Cmd.none )
@@ -165,10 +164,13 @@ subscriptions model =
 
 
 view : Model -> Browser.Document FrontendMsg
-view { page, shared, url, key } =
-    Shared.view (Request.create () url key)
-        { page = Pages.view page shared url key |> View.map Page
-        , toMsg = Shared
-        }
-        shared
-        |> View.toBrowserDocument
+view model =
+    View.toBrowserDocument
+        (Shared.view
+            (Request.create () model.url model.key)
+            { page =
+                Pages.view model.page model.shared model.url model.key
+                    |> View.map Page
+            , toMsg = Shared
+            }
+        )
