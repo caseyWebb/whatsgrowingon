@@ -1,5 +1,6 @@
 module Data exposing (..)
 
+import Data.Users exposing (User)
 import Slug exposing (Slug)
 import Time
 import Ui.Color exposing (Color)
@@ -43,4 +44,9 @@ type alias Note =
     , plantingId : Maybe Slug
     , cropId : Maybe Slug
     , varietyId : Maybe Slug
+    }
+
+
+type alias Session =
+    { user : Maybe User
     }

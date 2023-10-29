@@ -1,10 +1,18 @@
 module Backend exposing (..)
 
 import Data exposing (..)
+import Data.PasskeyRegistrationOptions as PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
+import Data.PasskeyRegistrationResponse as PasskeyRegistrationResponse
+import Data.Users as Users exposing (Passkey)
 import GenericDict as Dict
+import Http
+import Json.Decode as Decode exposing (Decoder)
+import Json.Encode as Encode
 import Lamdera exposing (ClientId, SessionId)
+import List.Extra as List
 import Shared
 import Slug
+import Svg.Styled exposing (use)
 import Types exposing (..)
 import Ui.Color exposing (..)
 
@@ -30,6 +38,16 @@ app =
         , updateFromFrontend = updateFromFrontend
         , subscriptions = \_ -> Sub.none
         }
+
+
+rpName : String
+rpName =
+    "whatsgrowingon"
+
+
+rpID : String
+rpID =
+    "localhost"
 
 
 init : ( Model, Cmd Msg )
@@ -101,6 +119,9 @@ init =
     ( { zones = Dict.empty
       , crops = crops
       , varieties = varieties
+      , users = Users.init
+      , sessions = Dict.empty
+      , passkeyChallenges = Dict.empty
       }
     , Cmd.none
     )
@@ -109,21 +130,78 @@ init =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        ToFrontend clientId toFrontendMsg ->
+            ( model
+            , Lamdera.sendToFrontend clientId toFrontendMsg
+            )
+
+        GotPasskeyRegistrationOptions clientId (Ok ( challenge, passkeyRegistrationOptions )) ->
+            ( { model | passkeyChallenges = Dict.insert identity clientId challenge model.passkeyChallenges }
+            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationOptions (Ok passkeyRegistrationOptions)))
+              -- todo: timeout
+            )
+
+        GotPasskeyRegistrationOptions clientId (Err err) ->
+            ( model
+            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationOptions (Err err)))
+            )
+
+        GotPasskeyRegistrationResult sessionId clientId (Ok passkeyRegistration) ->
+            let
+                ( newUser, updatedUsers ) =
+                    Users.insert model.users
+                        (\userId ->
+                            { id = userId
+                            , passkey = passkeyRegistration
+                            }
+                        )
+
+                session =
+                    { user = Just newUser }
+
+                updatedSessions =
+                    Dict.insert identity sessionId session model.sessions
+            in
+            ( { model
+                | users = updatedUsers
+                , sessions = updatedSessions
+              }
+            , Cmd.none
+              -- , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationResult (Ok passkeyRegistration)))
+            )
+
+        GotPasskeyRegistrationResult _ clientId (Err err) ->
+            ( model
+            , Cmd.none
+              -- , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationResult (Err err)))
+            )
+
         NoOpBackendMsg ->
             ( model, Cmd.none )
 
 
 updateFromFrontend : SessionId -> ClientId -> ToBackend -> Model -> ( Model, Cmd Msg )
-updateFromFrontend _ clientId msg model =
+updateFromFrontend sessionId clientId msg model =
     let
         respond msg_ =
             ( model, Lamdera.sendToFrontend clientId msg_ )
+
+        currentUser =
+            Dict.get identity sessionId model.sessions |> Maybe.andThen .user
     in
     case msg of
         SharedToBackend toBackendMsg ->
             case toBackendMsg of
                 Shared.FetchData ->
-                    respond <| SharedToFrontend (Shared.GotData model)
+                    respond <|
+                        SharedToFrontend
+                            (Shared.GotData
+                                { crops = model.crops
+                                , varieties = model.varieties
+                                , zones = model.zones
+                                , currentUser = currentUser
+                                }
+                            )
 
                 Shared.SaveZone zone ->
                     ( { model | zones = Dict.insert (Slug.map identity) zone.slug zone model.zones }
@@ -134,6 +212,61 @@ updateFromFrontend _ clientId msg model =
                     ( { model | zones = Dict.remove (Slug.map identity) slug model.zones }
                     , Cmd.none
                     )
+
+                Shared.FetchPasskeyRegistrationOptions ->
+                    ( model
+                    , Http.get
+                        { url = "http://localhost:8787/register?rpName=" ++ rpName ++ "&rpID=" ++ rpID ++ "&userID=" ++ clientId ++ "&userName=" ++ clientId
+                        , expect =
+                            Http.expectString
+                                (Result.mapError
+                                    (\httpError ->
+                                        case httpError of
+                                            _ ->
+                                                "HTTP Error"
+                                    )
+                                    >> (\result ->
+                                            let
+                                                challenge =
+                                                    Result.andThen
+                                                        (Decode.decodeString (Decode.field "challenge" Decode.string) >> Result.mapError Decode.errorToString)
+                                                        result
+
+                                                raw =
+                                                    Result.map PasskeyRegistrationOptions.fromString result
+                                            in
+                                            GotPasskeyRegistrationOptions clientId (Result.map2 Tuple.pair challenge raw)
+                                       )
+                                )
+                        }
+                    )
+
+                Shared.VerifyPasskeyRegistrationResponse passkeyRegistrationResponse ->
+                    case Dict.get identity clientId model.passkeyChallenges of
+                        Nothing ->
+                            ( model, Cmd.none )
+
+                        Just challenge ->
+                            ( model
+                            , Http.post
+                                { url = "http://localhost:8787/register?challenge=" ++ challenge ++ "&rpID=" ++ rpID ++ "&origin=http://localhost:8000"
+                                , body =
+                                    Http.jsonBody
+                                        (Encode.object
+                                            [ ( "response"
+                                              , PasskeyRegistrationResponse.encoder passkeyRegistrationResponse
+                                              )
+                                            ]
+                                        )
+                                , expect =
+                                    Http.expectJson (GotPasskeyRegistrationResult sessionId clientId)
+                                        (Decode.map3 Passkey
+                                            (Decode.field "counter" Decode.int)
+                                            (Decode.field "credentialID" Decode.string)
+                                            (Decode.field "publicKey" Decode.string)
+                                        )
+                                }
+                            )
 
         NoOpToBackend ->
             ( model, Cmd.none )

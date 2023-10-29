@@ -1,3 +1,8 @@
 .direnv/
+.elm-spa/
+.run
 .vscode/
+elm-pkg-js/
 elm-stuff/
+node_modules/
+.wrangler

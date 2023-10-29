@@ -80,14 +80,14 @@ advanced =
 protected :
     { static :
         (User
-         ->
+            ->
             { view : View msg
             }
         )
         -> With () msg
     , sandbox :
         (User
-         ->
+            ->
             { init : model
             , update : msg -> model -> model
             , view : model -> View msg
@@ -96,7 +96,7 @@ protected :
         -> With model msg
     , element :
         (User
-         ->
+            ->
             { init : ( model, Cmd msg )
             , update : msg -> model -> ( model, Cmd msg )
             , view : model -> View msg
@@ -106,7 +106,7 @@ protected :
         -> With model msg
     , advanced :
         (User
-         ->
+            ->
             { init : ( model, Effect msg )
             , update : msg -> model -> ( model, Effect msg )
             , view : model -> View msg
@@ -121,3 +121,4 @@ protected =
         , fromCmd = Effect.fromCmd
         , beforeInit = Auth.beforeProtectedInit
         }
+

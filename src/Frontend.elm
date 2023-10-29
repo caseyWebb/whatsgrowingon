@@ -168,6 +168,7 @@ view model =
     View.toBrowserDocument
         (Shared.view
             (Request.create () model.url model.key)
+            model.shared
             { page =
                 Pages.view model.page model.shared model.url model.key
                     |> View.map Page

@@ -1,8 +1,10 @@
 module View exposing (View, map, none, placeholder, toBrowserDocument)
 
 import Browser
+import Css
+import Css.Media
 import Html.Styled exposing (Html, div)
-import Html.Styled.Attributes exposing (attribute)
+import Html.Styled.Attributes exposing (attribute, css)
 import Ui.Modal as Modal exposing (ModalView)
 
 
@@ -47,7 +49,20 @@ toBrowserDocument view =
             Nothing ->
                 view.body
           )
-            |> Html.Styled.div []
+            |> Html.Styled.div
+                [ css
+                    [ Css.fontFamily Css.sansSerif
+                    , Css.width (Css.pct 100)
+                    , Css.minHeight (Css.vh 100)
+                    , Css.overflow Css.auto
+                    , Css.padding (Css.em 1)
+                    , Css.boxSizing Css.borderBox
+                    , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
+                        [ Css.backgroundColor (Css.hex "030303")
+                        , Css.color (Css.hex "ccc")
+                        ]
+                    ]
+                ]
             |> Html.Styled.toUnstyled
         ]
     }

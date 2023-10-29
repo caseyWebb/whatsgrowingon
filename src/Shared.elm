@@ -14,12 +14,13 @@ module Shared exposing
     )
 
 import Browser.Dom as Dom
-import Css
-import Css.Media
 import Data exposing (..)
+import Data.PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
+import Data.PasskeyRegistrationResponse exposing (PasskeyRegistrationResponse)
+import Data.Users as Users exposing (User)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
-import Html.Styled.Attributes exposing (css)
+import Json.Decode as Decode
 import Maybe.Extra as Maybe
 import Random
 import RemoteData exposing (RemoteData)
@@ -27,7 +28,9 @@ import Request exposing (Request)
 import Slug exposing (Slug)
 import Task
 import Time
+import Ui.Button as Button
 import View exposing (View)
+import WebAuthn exposing (createCredential, createCredentialResponse)
 
 
 addZone : Msg
@@ -61,6 +64,7 @@ type alias Model =
             { zones : Dict Slug Zone
             , crops : Dict Slug Crop
             , varieties : Dict Slug Variety
+            , currentUser : Maybe User
             }
     , now : Maybe Time.Posix
     }
@@ -89,6 +93,8 @@ type Msg
     | FocusZone Slug
     | UpdateZone Bool Zone
     | GotCurrentTime Time.Posix
+    | StartSignupFlow
+    | GotPasskeyRegistrationResponse (Result String PasskeyRegistrationResponse)
     | NoOp
 
 
@@ -96,6 +102,8 @@ type ToBackend
     = FetchData
     | SaveZone Zone
     | DeleteZoneToBackend Slug
+    | FetchPasskeyRegistrationOptions
+    | VerifyPasskeyRegistrationResponse PasskeyRegistrationResponse
 
 
 type ToFrontend
@@ -103,7 +111,9 @@ type ToFrontend
         { zones : Dict Slug Zone
         , crops : Dict Slug Crop
         , varieties : Dict Slug Variety
+        , currentUser : Maybe User
         }
+    | GotWebAuthnRegistrationOptions (Result String PasskeyRegistrationOptions)
 
 
 update :
@@ -124,6 +134,17 @@ update ({ toBackend } as config) req msg model =
                 | data = RemoteData.Success data
               }
             , Cmd.none
+            )
+
+        FromBackend (GotWebAuthnRegistrationOptions challenge) ->
+            ( model
+            , case challenge of
+                Ok challenge_ ->
+                    createCredential challenge_
+
+                Err err ->
+                    Debug.log "Failed to create credential" err
+                        |> always Cmd.none
             )
 
         AddZone maybeSlug ->
@@ -186,13 +207,27 @@ update ({ toBackend } as config) req msg model =
             , Cmd.none
             )
 
+        StartSignupFlow ->
+            ( model
+            , toBackend FetchPasskeyRegistrationOptions
+            )
+
+        GotPasskeyRegistrationResponse (Ok response) ->
+            ( model
+            , toBackend <| VerifyPasskeyRegistrationResponse response
+            )
+
+        GotPasskeyRegistrationResponse (Err err) ->
+            Debug.log "Failed to decode passkey registration response" err
+                |> always ( model, Cmd.none )
+
         NoOp ->
             ( model, Cmd.none )
 
 
 subscriptions : Request -> Model -> Sub Msg
 subscriptions _ _ =
-    Sub.none
+    createCredentialResponse GotPasskeyRegistrationResponse
 
 
 
@@ -201,29 +236,36 @@ subscriptions _ _ =
 
 view :
     Request
+    -> Model
     ->
         { page : View msg
         , toMsg : Msg -> msg
         }
     -> View msg
-view _ { page } =
+view _ model { page, toMsg } =
     { title = page.title
     , body =
-        [ div
-            [ css
-                [ Css.fontFamily Css.sansSerif
-                , Css.width (Css.pct 100)
-                , Css.minHeight (Css.vh 100)
-                , Css.overflow Css.auto
-                , Css.padding (Css.em 1)
-                , Css.boxSizing Css.borderBox
-                , Css.Media.withMediaQuery [ "(prefers-color-scheme: dark)" ]
-                    [ Css.backgroundColor (Css.hex "030303")
-                    , Css.color (Css.hex "ccc")
-                    ]
-                ]
-            ]
-            page.body
-        ]
+        case model.data of
+            RemoteData.NotAsked ->
+                []
+
+            RemoteData.Loading ->
+                [ text "Loading..." ]
+
+            RemoteData.Failure err ->
+                [ text err ]
+
+            RemoteData.Success data ->
+                case data.currentUser of
+                    Nothing ->
+                        viewSignupButton toMsg :: page.body
+
+                    Just user ->
+                        text (Users.toString user.id) :: page.body
     , modal = page.modal
     }
+
+
+viewSignupButton : (Msg -> msg) -> Html msg
+viewSignupButton toMsg =
+    Button.view (toMsg StartSignupFlow) [] [ text "Sign up" ]

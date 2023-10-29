@@ -7,6 +7,12 @@ Visit the [website](https://whatsgrowingon.lamdera.app/) to see it in action.
 ![](./screenshot_light.png)
 ![](./screenshot_dark.png)
 
+## Development
+
+### Setup
+
+Install [nix](https://nixos.org/download.html) and [direnv](https://direnv.net/).
+
 ## ROADMAP
 
 - [ ] Search/filtering when adding planting

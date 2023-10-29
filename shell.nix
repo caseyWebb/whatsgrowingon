@@ -11,6 +11,27 @@ let
     phases = ["installPhase"];
     installPhase = "install -D $src $out/bin/lamdera";
   };
+  # denoflare = pkgs.stdenv.mkDerivation rec {
+  #   name = "denoflare";
+  #   buildInputs = [ pkgs.deno ];
+  #   unpackPhase = "true";
+    
+  #   buildPhase = ''
+  #     export HOME=$out
+  #   '';
+    
+  #   installPhase = ''
+  #     deno install \
+  #       --unstable \
+  #       --allow-read \
+  #       --allow-net \
+  #       --allow-env \
+  #       --allow-run \
+  #       --root $out \
+  #       --name denoflare \
+  #       https://raw.githubusercontent.com/skymethod/denoflare/v0.5.12/cli/cli.ts
+  #   '';
+  # };
 in
 pkgs.mkShell {
   buildInputs = [
@@ -20,7 +41,13 @@ pkgs.mkShell {
     pkgs.elmPackages.elm-review
     pkgs.elmPackages.elm-spa
     lamdera
+    pkgs.esbuild
+    pkgs.nodejs_20
+    pkgs.nodePackages.wrangler
+    # pkgs.deno
+    # denoflare
     pkgs.jq
+    pkgs.fswatch
   ];
   shellHook = ''
     settings_file=.vscode/settings.json
@@ -35,5 +62,6 @@ pkgs.mkShell {
     set_vscode_setting "elmLS.elmReviewPath" "$(which elm-review)"
     set_vscode_setting "elmLS.elmFormatPath" "$(which elm-format)"
     set_vscode_setting "elmLS.elmTestPath" "$(which elm-test)"
+    # set_vscode_setting "deno.path" "$(which deno)"
   '';
 }
