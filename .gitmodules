@@ -1,0 +1,3 @@
+[submodule "vendor/SimpleWebAuthn"]
+	path = vendor/SimpleWebAuthn
+	url = https://github.com/MasterKale/SimpleWebAuthn
