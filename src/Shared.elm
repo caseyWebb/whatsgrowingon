@@ -114,6 +114,7 @@ type ToFrontend
         , currentUser : Maybe User
         }
     | GotWebAuthnRegistrationOptions (Result String PasskeyRegistrationOptions)
+    | Login User
 
 
 update :
@@ -145,6 +146,16 @@ update ({ toBackend } as config) req msg model =
                 Err err ->
                     Debug.log "Failed to create credential" err
                         |> always Cmd.none
+            )
+
+        FromBackend (Login user) ->
+            ( { model
+                | data =
+                    RemoteData.map
+                        (\data -> { data | currentUser = Just user })
+                        model.data
+              }
+            , Cmd.none
             )
 
         AddZone maybeSlug ->

@@ -39,14 +39,14 @@ toString (UserId id) =
     String.fromInt id
 
 
-insert : Model -> (UserId -> User) -> ( User, Model )
+insert : Model -> (UserId -> User) -> ( UserId, Model )
 insert model user =
     let
-        newUser =
-            user (UserId model.counter)
+        newUserId =
+            UserId model.counter
     in
-    ( newUser
-    , { users = Dict.insert model.counter newUser model.users
+    ( newUserId
+    , { users = Dict.insert model.counter (user newUserId) model.users
       , counter = model.counter + 1
       }
     )

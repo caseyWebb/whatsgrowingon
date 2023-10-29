@@ -1,18 +1,17 @@
 module Backend exposing (..)
 
 import Data exposing (..)
-import Data.PasskeyRegistrationOptions as PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
+import Data.PasskeyRegistrationOptions as PasskeyRegistrationOptions
 import Data.PasskeyRegistrationResponse as PasskeyRegistrationResponse
 import Data.Users as Users exposing (Passkey)
 import GenericDict as Dict
 import Http
-import Json.Decode as Decode exposing (Decoder)
+import Json.Decode as Decode
 import Json.Encode as Encode
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra as List
 import Shared
 import Slug
-import Svg.Styled exposing (use)
 import Types exposing (..)
 import Ui.Color exposing (..)
 
@@ -129,6 +128,10 @@ init =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        andThen msg_ ( updatedModel, cmd ) =
+            update msg_ updatedModel |> Tuple.mapSecond (List.singleton >> (::) cmd >> Cmd.batch)
+    in
     case msg of
         ToFrontend clientId toFrontendMsg ->
             ( model
@@ -137,8 +140,10 @@ update msg model =
 
         GotPasskeyRegistrationOptions clientId (Ok ( challenge, passkeyRegistrationOptions )) ->
             ( { model | passkeyChallenges = Dict.insert identity clientId challenge model.passkeyChallenges }
-            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationOptions (Ok passkeyRegistrationOptions)))
-              -- todo: timeout
+            , Cmd.batch
+                [ Lamdera.sendToFrontend clientId
+                    (SharedToFrontend (Shared.GotWebAuthnRegistrationOptions (Ok passkeyRegistrationOptions)))
+                ]
             )
 
         GotPasskeyRegistrationOptions clientId (Err err) ->
@@ -148,26 +153,34 @@ update msg model =
 
         GotPasskeyRegistrationResult sessionId clientId (Ok passkeyRegistration) ->
             let
-                ( newUser, updatedUsers ) =
+                ( userId, updatedUsers ) =
                     Users.insert model.users
-                        (\userId ->
-                            { id = userId
+                        (\id ->
+                            { id = id
                             , passkey = passkeyRegistration
                             }
                         )
-
-                session =
-                    { user = Just newUser }
-
-                updatedSessions =
-                    Dict.insert identity sessionId session model.sessions
             in
             ( { model
                 | users = updatedUsers
-                , sessions = updatedSessions
               }
             , Cmd.none
-              -- , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationResult (Ok passkeyRegistration)))
+            )
+                |> andThen (Login sessionId clientId userId)
+
+        Login sessionId clientId userId ->
+            let
+                user =
+                    Users.get model.users userId
+
+                updatedSessions =
+                    Dict.insert identity sessionId { user = user } model.sessions
+            in
+            ( { model
+                | sessions = updatedSessions
+              }
+            , Maybe.map (Shared.Login >> SharedToFrontend >> Lamdera.sendToFrontend clientId) user
+                |> Maybe.withDefault Cmd.none
             )
 
         GotPasskeyRegistrationResult _ clientId (Err err) ->

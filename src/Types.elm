@@ -4,7 +4,7 @@ import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
 import Data exposing (..)
 import Data.PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
-import Data.Users exposing (Passkey)
+import Data.Users exposing (Passkey, UserId)
 import Gen.Pages as Pages
 import GenericDict exposing (Dict)
 import Http
@@ -49,6 +49,7 @@ type BackendMsg
     = ToFrontend ClientId ToFrontend
     | GotPasskeyRegistrationOptions ClientId (Result String ( String, PasskeyRegistrationOptions ))
     | GotPasskeyRegistrationResult SessionId ClientId (Result Http.Error Passkey)
+    | Login SessionId ClientId UserId
     | NoOpBackendMsg
 
 
