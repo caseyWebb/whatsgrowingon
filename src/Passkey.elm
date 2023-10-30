@@ -12,6 +12,7 @@ import Data.PasskeyRegistrationResponse as PasskeyRegistrationResponse exposing 
 import Data.Users as Users exposing (Passkey, Username, passkeyDecoder)
 import Json.Decode as Decode
 import Json.Encode as Encode
+import Random
 
 
 port registerPasskeyPort : Encode.Value -> Cmd msg
@@ -58,3 +59,114 @@ onAuthenticationResponse toMsg =
             >> Result.mapError Decode.errorToString
             >> toMsg
         )
+
+
+type alias RegistrationOptions =
+    { challenge : String
+    , rp : RelyingParty
+    , user : User
+    , pubKeyCredParams :
+        List
+            { alg : Int
+            , type_ : String
+            }
+    , timeout : Int
+    , attestationType : AttestationType
+    , excludeCredentials :
+        List
+            { id : String
+            , type_ : String
+            , transports : List String
+            }
+    , authenticatorSelection :
+        { authenticatorAttachment : String
+        , requireResidentKey : Bool
+        , residentKey : Maybe String
+        , userVerification : String
+        }
+
+    -- extensions : {
+    --     appid : String
+    --     appidExclude : String
+    --     uvm : Bool
+    -- }
+    }
+
+
+defaultRegistrationOptions =
+    { challenge = ""
+    , rp =
+        { name = ""
+        , id = ""
+        }
+    , user =
+        { id = ""
+        , name = ""
+        , displayName = ""
+        }
+    , pubKeyCredParams = []
+    , timeout = 60000
+    , attestationType = None
+    , excludeCredentials = []
+    , authenticatorSelection =
+        { authenticatorAttachment = "cross-platform"
+        , requireResidentKey = False
+        , residentKey = Nothing
+        , userVerification = "preferred"
+        }
+    }
+
+
+type AttestationType
+    = None
+    | Indirect
+    | Direct
+
+
+type alias RelyingParty =
+    { name : String
+    , id : String
+    }
+
+
+type alias User =
+    { id : String
+    , name : String
+    , displayName : String
+    }
+
+
+type RegistrationOption
+    = RegistrationOption (RegistrationOptions -> RegistrationOptions)
+
+
+requireUserVerification : RegistrationOption
+requireUserVerification =
+    RegistrationOption
+        (\options ->
+            { options
+                | authenticatorSelection =
+                    options.authenticatorSelection
+                        |> (\authenticatorSelection ->
+                                { authenticatorSelection | userVerification = "required" }
+                           )
+            }
+        )
+
+
+generateRegistrationOptions : { rp : RelyingParty, user : User } -> List RegistrationOption -> (RegistrationOptions -> msg) -> Cmd msg
+generateRegistrationOptions requiredSettings optionalSettings onGotRegistrationOptions =
+    let
+        withChallenge challenge =
+            RegistrationOption (\options -> { options | challenge = challenge })
+
+        -- settings = List.foldl (\(RegistrationOption f) options -> f options) defaultRegistrationOptions optionalSettings
+    in
+    Random.generate
+        (\challenge ->
+            onGotRegistrationOptions
+                (List.foldl (\(RegistrationOption f) options -> f options) defaultRegistrationOptions optionalSettings
+                    |> withChallenge challenge
+                )
+        )
+        (Random.string 32)
