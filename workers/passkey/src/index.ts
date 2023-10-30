@@ -1,16 +1,17 @@
 import * as webauthn from "@simplewebauthn/server";
 import type {
-  VerifiedAuthenticationResponse,
-  VerifiedRegistrationResponse,
-} from "@simplewebauthn/server";
-import type {
   AuthenticationResponseJSON,
-  AuthenticatorDevice,
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialDescriptorFuture,
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from "@simplewebauthn/typescript-types";
+
+type Passkey = {
+  counter: number;
+  credentialID: string;
+  publicKey: string;
+};
 
 class MissingParameterError extends Error {
   constructor(param: string) {
@@ -36,10 +37,6 @@ class VerificationError extends Error {
   }
 }
 
-function identity<T>(value: T): T {
-  return value;
-}
-
 function isAuthenticatorAttachment(
   value: string | null
 ): value is AuthenticatorAttachment {
@@ -61,12 +58,13 @@ function isRegistrationResponse(value: any): value is RegistrationResponseJSON {
   );
 }
 
-function isAuthenticator(value: any): value is AuthenticatorDevice {
+function isPasskey(value: any): value is Passkey {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof value.id === "string" &&
-    typeof value.counter === "number"
+    typeof value.counter === "number" &&
+    typeof value.credentialID === "string" &&
+    typeof value.publicKey === "string"
   );
 }
 
@@ -160,13 +158,9 @@ export default {
       });
     }
 
-    async function verifyRegistrationResponse(): Promise<{
-      counter: number;
-      credentialID: string;
-      publicKey: string;
-    }> {
+    async function verifyRegistrationResponse(): Promise<Passkey> {
       const response = await getBodyParam(
-        "response",
+        "passkey",
         JSON.parse,
         isRegistrationResponse
       );
@@ -180,12 +174,17 @@ export default {
         .then((res) => {
           if (res.verified) {
             const decoder = new TextDecoder("utf-8");
+            const credentialID = decoder.decode(
+              res.registrationInfo!.credentialID
+            );
+            const publicKey = decoder.decode(
+              res.registrationInfo!.credentialPublicKey
+            );
+            debugger;
             return {
               counter: res.registrationInfo!.counter,
-              credentialID: decoder.decode(res.registrationInfo!.credentialID),
-              publicKey: decoder.decode(
-                res.registrationInfo!.credentialPublicKey
-              ),
+              credentialID,
+              publicKey,
             };
           } else {
             throw new VerificationError();
@@ -200,13 +199,18 @@ export default {
       });
     }
 
-    async function verifyAuthenticationResponse(): Promise<VerifiedAuthenticationResponse> {
-      return await webauthn.verifyAuthenticationResponse({
-        authenticator: await getBodyParam(
-          "authenticator",
-          JSON.parse,
-          isAuthenticator
-        ),
+    async function verifyAuthenticationResponse(): Promise<Passkey> {
+      const passkey = await getBodyParam("passkey", JSON.parse, isPasskey);
+      const verification = await webauthn.verifyAuthenticationResponse({
+        authenticator: {
+          credentialID: Uint8Array.from(atob(passkey.credentialID), (c) =>
+            c.charCodeAt(0)
+          ),
+          credentialPublicKey: Uint8Array.from(atob(passkey.publicKey), (c) =>
+            c.charCodeAt(0)
+          ),
+          counter: passkey.counter,
+        },
         response: await getBodyParam(
           "response",
           JSON.parse,
@@ -215,7 +219,17 @@ export default {
         expectedChallenge: getRequiredParam("challenge"),
         expectedOrigin: getRequiredParam("origin"),
         expectedRPID: getRequiredParam("rpID"),
+        requireUserVerification: true,
       });
+      if (verification.verified) {
+        return {
+          counter: verification.authenticationInfo.newCounter,
+          credentialID: passkey.credentialID,
+          publicKey: passkey.publicKey,
+        };
+      } else {
+        throw new VerificationError();
+      }
     }
 
     const routes: Record<string, Record<string, () => Promise<any>>> = {
@@ -223,7 +237,7 @@ export default {
         GET: generateRegistrationOptions,
         POST: verifyRegistrationResponse,
       },
-      "/login": {
+      "/authenticate": {
         GET: generateAuthenticationOptions,
         POST: verifyAuthenticationResponse,
       },
@@ -255,9 +269,14 @@ export default {
         }
       });
 
-    return new Response(
-      typeof body === "string" ? body : JSON.stringify(body),
-      { status }
+    const encodedBody = typeof body === "string" ? body : JSON.stringify(body);
+
+    console.log(
+      "Response:",
+      status,
+      JSON.stringify(JSON.parse(encodedBody), null, 2)
     );
+
+    return new Response(encodedBody, { status });
   },
 };

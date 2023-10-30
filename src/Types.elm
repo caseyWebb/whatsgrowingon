@@ -3,8 +3,9 @@ module Types exposing (..)
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
 import Data exposing (..)
+import Data.PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
 import Data.PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
-import Data.Users exposing (Passkey, UserId)
+import Data.Users exposing (Passkey, UserId, Username)
 import Gen.Pages as Pages
 import GenericDict exposing (Dict)
 import Http
@@ -47,8 +48,10 @@ type ToBackend
 
 type BackendMsg
     = ToFrontend ClientId ToFrontend
-    | GotPasskeyRegistrationOptions ClientId (Result String ( String, PasskeyRegistrationOptions ))
-    | GotPasskeyRegistrationResult SessionId ClientId (Result Http.Error Passkey)
+    | GotPasskeyRegistrationOptions ClientId (Result String ( Username, String, PasskeyRegistrationOptions ))
+    | GotPasskeyRegistrationResult SessionId ClientId Username (Result Http.Error Passkey)
+    | GotPasskeyAuthenticationOptions ClientId UserId (Result String ( String, PasskeyAuthenticationOptions ))
+    | GotPasskeyAuthenticationResult SessionId ClientId UserId (Result Http.Error ())
     | Login SessionId ClientId UserId
     | NoOpBackendMsg
 

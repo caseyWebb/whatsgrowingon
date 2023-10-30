@@ -1,6 +1,8 @@
 module Backend exposing (..)
 
 import Data exposing (..)
+import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions
+import Data.PasskeyAuthenticationResponse as PasskeyAuthenticationResponse
 import Data.PasskeyRegistrationOptions as PasskeyRegistrationOptions
 import Data.PasskeyRegistrationResponse as PasskeyRegistrationResponse
 import Data.Users as Users exposing (Passkey)
@@ -138,28 +140,26 @@ update msg model =
             , Lamdera.sendToFrontend clientId toFrontendMsg
             )
 
-        GotPasskeyRegistrationOptions clientId (Ok ( challenge, passkeyRegistrationOptions )) ->
+        GotPasskeyRegistrationOptions clientId (Ok ( userId, challenge, passkeyRegistrationOptions )) ->
             ( { model | passkeyChallenges = Dict.insert identity clientId challenge model.passkeyChallenges }
             , Cmd.batch
                 [ Lamdera.sendToFrontend clientId
-                    (SharedToFrontend (Shared.GotWebAuthnRegistrationOptions (Ok passkeyRegistrationOptions)))
+                    (SharedToFrontend (Shared.GotPasskeyRegistrationOptions (Ok passkeyRegistrationOptions)))
                 ]
             )
 
         GotPasskeyRegistrationOptions clientId (Err err) ->
             ( model
-            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationOptions (Err err)))
+            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotPasskeyRegistrationOptions (Err err)))
             )
 
-        GotPasskeyRegistrationResult sessionId clientId (Ok passkeyRegistration) ->
+        GotPasskeyRegistrationResult sessionId clientId username (Ok passkeyRegistration) ->
             let
                 ( userId, updatedUsers ) =
                     Users.insert model.users
-                        (\id ->
-                            { id = id
-                            , passkey = passkeyRegistration
-                            }
-                        )
+                        { username = username
+                        , passkey = passkeyRegistration
+                        }
             in
             ( { model
                 | users = updatedUsers
@@ -167,6 +167,34 @@ update msg model =
             , Cmd.none
             )
                 |> andThen (Login sessionId clientId userId)
+
+        GotPasskeyRegistrationResult _ _ _ (Err _) ->
+            ( model
+            , Cmd.none
+              -- , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationResult (Err err)))
+            )
+
+        GotPasskeyAuthenticationOptions clientId userId (Ok ( challenge, passkeyAuthenticationOptions )) ->
+            ( { model | passkeyChallenges = Dict.insert identity clientId challenge model.passkeyChallenges }
+            , Cmd.batch
+                [ Lamdera.sendToFrontend clientId
+                    (SharedToFrontend (Shared.GotPasskeyAuthenticationOptions (Ok passkeyAuthenticationOptions)))
+                ]
+            )
+
+        GotPasskeyAuthenticationOptions clientId userId (Err err) ->
+            ( model
+            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotPasskeyAuthenticationOptions (Err err)))
+            )
+
+        GotPasskeyAuthenticationResult sessionId clientId userId (Ok passkeyAuthentication) ->
+            update (Login sessionId clientId userId) model
+
+        GotPasskeyAuthenticationResult sessionId clientId userId (Err err) ->
+            ( model
+            , Cmd.none
+              -- , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotPasskeyAuthenticationResult (Err err)))
+            )
 
         Login sessionId clientId userId ->
             let
@@ -183,12 +211,6 @@ update msg model =
                 |> Maybe.withDefault Cmd.none
             )
 
-        GotPasskeyRegistrationResult _ clientId (Err err) ->
-            ( model
-            , Cmd.none
-              -- , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotWebAuthnRegistrationResult (Err err)))
-            )
-
         NoOpBackendMsg ->
             ( model, Cmd.none )
 
@@ -197,7 +219,7 @@ updateFromFrontend : SessionId -> ClientId -> ToBackend -> Model -> ( Model, Cmd
 updateFromFrontend sessionId clientId msg model =
     let
         respond msg_ =
-            ( model, Lamdera.sendToFrontend clientId msg_ )
+            Lamdera.sendToFrontend clientId msg_
 
         currentUser =
             Dict.get identity sessionId model.sessions |> Maybe.andThen .user
@@ -206,7 +228,8 @@ updateFromFrontend sessionId clientId msg model =
         SharedToBackend toBackendMsg ->
             case toBackendMsg of
                 Shared.FetchData ->
-                    respond <|
+                    ( model
+                    , respond <|
                         SharedToFrontend
                             (Shared.GotData
                                 { crops = model.crops
@@ -215,6 +238,7 @@ updateFromFrontend sessionId clientId msg model =
                                 , currentUser = currentUser
                                 }
                             )
+                    )
 
                 Shared.SaveZone zone ->
                     ( { model | zones = Dict.insert (Slug.map identity) zone.slug zone model.zones }
@@ -226,10 +250,19 @@ updateFromFrontend sessionId clientId msg model =
                     , Cmd.none
                     )
 
-                Shared.FetchPasskeyRegistrationOptions ->
+                Shared.FetchPasskeyRegistrationOptions usernameString ->
                     ( model
                     , Http.get
-                        { url = "http://localhost:8787/register?rpName=" ++ rpName ++ "&rpID=" ++ rpID ++ "&userID=" ++ clientId ++ "&userName=" ++ clientId
+                        { url =
+                            "http://localhost:8787/register?"
+                                ++ "rpName="
+                                ++ rpName
+                                ++ "&rpID="
+                                ++ rpID
+                                ++ "&userID="
+                                ++ clientId
+                                ++ "&userName="
+                                ++ usernameString
                         , expect =
                             Http.expectString
                                 (Result.mapError
@@ -239,22 +272,27 @@ updateFromFrontend sessionId clientId msg model =
                                                 "HTTP Error"
                                     )
                                     >> (\result ->
-                                            let
-                                                challenge =
-                                                    Result.andThen
-                                                        (Decode.decodeString (Decode.field "challenge" Decode.string) >> Result.mapError Decode.errorToString)
+                                            GotPasskeyRegistrationOptions clientId
+                                                (Result.map2
+                                                    (\( challenge, username ) raw -> ( username, challenge, raw ))
+                                                    (Result.andThen
+                                                        (Decode.decodeString
+                                                            (Decode.map2 Tuple.pair
+                                                                (Decode.field "challenge" Decode.string)
+                                                                (Decode.at [ "user", "name" ] Users.usernameDecoder)
+                                                            )
+                                                            >> Result.mapError Decode.errorToString
+                                                        )
                                                         result
-
-                                                raw =
-                                                    Result.map PasskeyRegistrationOptions.fromString result
-                                            in
-                                            GotPasskeyRegistrationOptions clientId (Result.map2 Tuple.pair challenge raw)
+                                                    )
+                                                    (Result.map PasskeyRegistrationOptions.fromString result)
+                                                )
                                        )
                                 )
                         }
                     )
 
-                Shared.VerifyPasskeyRegistrationResponse passkeyRegistrationResponse ->
+                Shared.VerifyPasskeyRegistrationResponse ( username, passkeyRegistrationResponse ) ->
                     case Dict.get identity clientId model.passkeyChallenges of
                         Nothing ->
                             ( model, Cmd.none )
@@ -262,24 +300,109 @@ updateFromFrontend sessionId clientId msg model =
                         Just challenge ->
                             ( model
                             , Http.post
-                                { url = "http://localhost:8787/register?challenge=" ++ challenge ++ "&rpID=" ++ rpID ++ "&origin=http://localhost:8000"
+                                { url =
+                                    "http://localhost:8787/register?"
+                                        ++ "challenge="
+                                        ++ challenge
+                                        ++ "&rpID="
+                                        ++ rpID
+                                        ++ "&origin=http://localhost:8000"
                                 , body =
                                     Http.jsonBody
                                         (Encode.object
-                                            [ ( "response"
+                                            [ ( "passkey"
                                               , PasskeyRegistrationResponse.encoder passkeyRegistrationResponse
                                               )
                                             ]
                                         )
                                 , expect =
-                                    Http.expectJson (GotPasskeyRegistrationResult sessionId clientId)
-                                        (Decode.map3 Passkey
-                                            (Decode.field "counter" Decode.int)
-                                            (Decode.field "credentialID" Decode.string)
-                                            (Decode.field "publicKey" Decode.string)
+                                    Http.expectJson
+                                        (GotPasskeyRegistrationResult sessionId clientId username)
+                                        Users.passkeyDecoder
+                                }
+                            )
+
+                Shared.FetchPasskeyAuthenticationOptions username ->
+                    case Users.findByUsername model.users username of
+                        Just user ->
+                            ( model
+                            , Http.get
+                                { url =
+                                    "http://localhost:8787/authenticate?"
+                                        ++ "rpName="
+                                        ++ rpName
+                                        ++ "&rpID="
+                                        ++ rpID
+                                , expect =
+                                    Http.expectString
+                                        (Result.mapError
+                                            (\httpError ->
+                                                case httpError of
+                                                    _ ->
+                                                        "HTTP Error"
+                                            )
+                                            >> (\result ->
+                                                    GotPasskeyAuthenticationOptions clientId
+                                                        user.id
+                                                        (Result.map2 Tuple.pair
+                                                            (Result.andThen
+                                                                (Decode.decodeString
+                                                                    (Decode.field "challenge" Decode.string)
+                                                                    >> Result.mapError Decode.errorToString
+                                                                )
+                                                                result
+                                                            )
+                                                            (Result.map PasskeyAuthenticationOptions.fromString result)
+                                                        )
+                                               )
                                         )
                                 }
                             )
+
+                        Nothing ->
+                            ( model
+                            , respond (SharedToFrontend (Shared.GotPasskeyAuthenticationOptions (Err "User not found")))
+                            )
+
+                Shared.VerifyPasskeyAuthenticationResponse response ->
+                    case
+                        Maybe.map2 Tuple.pair
+                            (Debug.log "challenge" <| Dict.get identity clientId model.passkeyChallenges)
+                            (Debug.log "user" <| Users.findByPasskeyId model.users (Debug.log "credentialId" <| PasskeyAuthenticationResponse.credentialId response))
+                    of
+                        Just ( challenge, user ) ->
+                            ( model
+                            , Http.post
+                                { url =
+                                    "http://localhost:8787/authenticate?"
+                                        ++ "challenge="
+                                        ++ challenge
+                                        ++ "&rpID="
+                                        ++ rpID
+                                        ++ "&origin=http://localhost:8000"
+                                , body =
+                                    Http.jsonBody
+                                        (Encode.object
+                                            [ ( "response"
+                                              , PasskeyAuthenticationResponse.encoder response
+                                              )
+                                            ]
+                                        )
+                                , expect =
+                                    Http.expectJson (GotPasskeyAuthenticationResult sessionId clientId user.id)
+                                        (Decode.succeed ())
+                                }
+                            )
+
+                        Nothing ->
+                            ( model
+                            , Cmd.none
+                            )
+
+                Shared.Logout ->
+                    ( { model | sessions = Dict.remove identity sessionId model.sessions }
+                    , respond (SharedToFrontend Shared.LoggedOut)
+                    )
 
         NoOpToBackend ->
             ( model, Cmd.none )

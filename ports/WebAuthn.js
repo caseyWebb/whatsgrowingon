@@ -1,12 +1,27 @@
 "use strict";
 
-const { startRegistration } = require("@simplewebauthn/browser");
+const {
+  startRegistration,
+  startAuthentication,
+} = require("@simplewebauthn/browser");
 
 exports.init = (app) => {
-  app.ports.createCredentialPort.subscribe(async (json) => {
+  app.ports.registerPasskeyPort.subscribe(async (json) => {
     const options = JSON.parse(json);
-    console.dir(options);
     const response = await startRegistration(options);
-    app.ports.createCredentialResponsePort.send(JSON.stringify(response));
+    co;
+    app.ports.passkeyRegistrationResponsePort.send({
+      username: options.user.name,
+      response: JSON.stringify(response),
+    });
+  });
+
+  app.ports.authenticatePasskeyPort.subscribe(async (json) => {
+    const options = JSON.parse(json);
+    const response = await startAuthentication(options);
+    debugger;
+    app.ports.passkeyAuthenticationResponsePort.send({
+      response: JSON.stringify(response),
+    });
   });
 };

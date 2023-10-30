@@ -1,0 +1,14 @@
+{
+  "elmPath": "./bridge/elm",
+  "tsPath": "./bridge/ts",
+  "types": {
+    "records": {
+      "PasskeyAuthenticationOptions": {
+        "rpID": "String"
+      }
+    },
+    "enums": {},
+    "unions": {}
+  },
+  "ports": {}
+}

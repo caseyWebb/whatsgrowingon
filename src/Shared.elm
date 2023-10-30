@@ -15,13 +15,18 @@ module Shared exposing
 
 import Browser.Dom as Dom
 import Data exposing (..)
+import Data.PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
+import Data.PasskeyAuthenticationResponse exposing (PasskeyAuthenticationResponse)
 import Data.PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
 import Data.PasskeyRegistrationResponse exposing (PasskeyRegistrationResponse)
-import Data.Users as Users exposing (User)
+import Data.Users as Users exposing (Passkey, User, UserId, Username)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
+import Html.Styled.Attributes as Attrs
+import Html.Styled.Events exposing (onInput)
 import Json.Decode as Decode
 import Maybe.Extra as Maybe
+import Passkey exposing (authenticate, onAuthenticationResponse, onRegistrationResponse, register)
 import Random
 import RemoteData exposing (RemoteData)
 import Request exposing (Request)
@@ -30,7 +35,6 @@ import Task
 import Time
 import Ui.Button as Button
 import View exposing (View)
-import WebAuthn exposing (createCredential, createCredentialResponse)
 
 
 addZone : Msg
@@ -67,6 +71,7 @@ type alias Model =
             , currentUser : Maybe User
             }
     , now : Maybe Time.Posix
+    , username : String
     }
 
 
@@ -74,6 +79,7 @@ init : { toBackend : ToBackend -> Cmd Msg } -> Request -> ( Model, Cmd Msg )
 init { toBackend } _ =
     ( { data = RemoteData.Loading
       , now = Nothing
+      , username = ""
       }
     , Cmd.batch
         [ toBackend <| FetchData
@@ -93,8 +99,12 @@ type Msg
     | FocusZone Slug
     | UpdateZone Bool Zone
     | GotCurrentTime Time.Posix
-    | StartSignupFlow
-    | GotPasskeyRegistrationResponse (Result String PasskeyRegistrationResponse)
+    | StartSignupFlow String
+    | GotPasskeyRegistrationResponse (Result String ( Username, PasskeyRegistrationResponse ))
+    | StartLoginFlow
+    | GotPasskeyAuthenticationResponse (Result String PasskeyAuthenticationResponse)
+    | AttemptLogout
+    | UpdateUsername String
     | NoOp
 
 
@@ -102,8 +112,15 @@ type ToBackend
     = FetchData
     | SaveZone Zone
     | DeleteZoneToBackend Slug
-    | FetchPasskeyRegistrationOptions
-    | VerifyPasskeyRegistrationResponse PasskeyRegistrationResponse
+    | FetchPasskeyRegistrationOptions String
+    | VerifyPasskeyRegistrationResponse ( Username, PasskeyRegistrationResponse )
+    | FetchPasskeyAuthenticationOptions String
+    | VerifyPasskeyAuthenticationResponse PasskeyAuthenticationResponse
+    | Logout
+
+
+
+-- | Logout
 
 
 type ToFrontend
@@ -113,8 +130,10 @@ type ToFrontend
         , varieties : Dict Slug Variety
         , currentUser : Maybe User
         }
-    | GotWebAuthnRegistrationOptions (Result String PasskeyRegistrationOptions)
+    | GotPasskeyRegistrationOptions (Result String PasskeyRegistrationOptions)
+    | GotPasskeyAuthenticationOptions (Result String PasskeyAuthenticationOptions)
     | Login User
+    | LoggedOut
 
 
 update :
@@ -137,15 +156,18 @@ update ({ toBackend } as config) req msg model =
             , Cmd.none
             )
 
-        FromBackend (GotWebAuthnRegistrationOptions challenge) ->
+        FromBackend (GotPasskeyRegistrationOptions options) ->
             ( model
-            , case challenge of
-                Ok challenge_ ->
-                    createCredential challenge_
+            , Result.map register options
+                |> Result.mapError Debug.log
+                |> Result.withDefault Cmd.none
+            )
 
-                Err err ->
-                    Debug.log "Failed to create credential" err
-                        |> always Cmd.none
+        FromBackend (GotPasskeyAuthenticationOptions options) ->
+            ( model
+            , Result.map authenticate options
+                |> Result.mapError Debug.log
+                |> Result.withDefault Cmd.none
             )
 
         FromBackend (Login user) ->
@@ -153,6 +175,16 @@ update ({ toBackend } as config) req msg model =
                 | data =
                     RemoteData.map
                         (\data -> { data | currentUser = Just user })
+                        model.data
+              }
+            , Cmd.none
+            )
+
+        FromBackend LoggedOut ->
+            ( { model
+                | data =
+                    RemoteData.map
+                        (\data -> { data | currentUser = Nothing })
                         model.data
               }
             , Cmd.none
@@ -218,9 +250,9 @@ update ({ toBackend } as config) req msg model =
             , Cmd.none
             )
 
-        StartSignupFlow ->
+        StartSignupFlow username ->
             ( model
-            , toBackend FetchPasskeyRegistrationOptions
+            , toBackend (FetchPasskeyRegistrationOptions username)
             )
 
         GotPasskeyRegistrationResponse (Ok response) ->
@@ -232,13 +264,40 @@ update ({ toBackend } as config) req msg model =
             Debug.log "Failed to decode passkey registration response" err
                 |> always ( model, Cmd.none )
 
+        StartLoginFlow ->
+            ( model
+            , toBackend (FetchPasskeyAuthenticationOptions model.username)
+            )
+
+        GotPasskeyAuthenticationResponse (Ok response) ->
+            ( model
+            , toBackend <| VerifyPasskeyAuthenticationResponse response
+            )
+
+        GotPasskeyAuthenticationResponse (Err err) ->
+            Debug.log "Failed to decode passkey login response" err
+                |> always ( model, Cmd.none )
+
+        AttemptLogout ->
+            ( model
+            , toBackend Logout
+            )
+
+        UpdateUsername username ->
+            ( { model | username = username }
+            , Cmd.none
+            )
+
         NoOp ->
             ( model, Cmd.none )
 
 
 subscriptions : Request -> Model -> Sub Msg
 subscriptions _ _ =
-    createCredentialResponse GotPasskeyRegistrationResponse
+    Sub.batch
+        [ onRegistrationResponse GotPasskeyRegistrationResponse
+        , onAuthenticationResponse GotPasskeyAuthenticationResponse
+        ]
 
 
 
@@ -269,14 +328,47 @@ view _ model { page, toMsg } =
             RemoteData.Success data ->
                 case data.currentUser of
                     Nothing ->
-                        viewSignupButton toMsg :: page.body
+                        viewAuth toMsg model.username
+                            :: page.body
 
                     Just user ->
-                        text (Users.toString user.id) :: page.body
+                        text (Users.idToString user.id)
+                            :: viewLogoutButton toMsg
+                            :: page.body
     , modal = page.modal
     }
 
 
-viewSignupButton : (Msg -> msg) -> Html msg
-viewSignupButton toMsg =
-    Button.view (toMsg StartSignupFlow) [] [ text "Sign up" ]
+viewAuth : (Msg -> msg) -> String -> Html msg
+viewAuth toMsg username =
+    Html.div []
+        [ label
+            [ Attrs.for "username"
+            ]
+            [ text "Username" ]
+        , input
+            [ Attrs.type_ "text"
+            , Attrs.name "username"
+            , Attrs.attribute "autocomplete" "username webauthn"
+            , Attrs.id "username"
+            , Attrs.value username
+            , onInput (toMsg << UpdateUsername)
+            ]
+            []
+        , Button.view (toMsg StartLoginFlow)
+            []
+            [ text "Log in"
+            ]
+        , Button.view (toMsg (StartSignupFlow username))
+            []
+            [ text "Sign up"
+            ]
+        ]
+
+
+viewLogoutButton : (Msg -> msg) -> Html msg
+viewLogoutButton toMsg =
+    Button.view (toMsg AttemptLogout)
+        []
+        [ text "Log out"
+        ]
