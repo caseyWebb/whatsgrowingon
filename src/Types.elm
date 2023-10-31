@@ -4,12 +4,12 @@ import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
 import Data exposing (..)
 import Data.PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
-import Data.PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
 import Data.Users exposing (Passkey, UserId, Username)
 import Gen.Pages as Pages
 import GenericDict exposing (Dict)
 import Http
 import Lamdera exposing (ClientId, SessionId)
+import Passkey
 import Shared
 import Slug exposing (Slug)
 import Url exposing (Url)
@@ -48,7 +48,7 @@ type ToBackend
 
 type BackendMsg
     = ToFrontend ClientId ToFrontend
-    | GotPasskeyRegistrationOptions ClientId (Result String ( Username, String, PasskeyRegistrationOptions ))
+    | GotPasskeyRegistrationOptions ClientId Passkey.RegistrationOptions
     | GotPasskeyRegistrationResult SessionId ClientId Username (Result Http.Error Passkey)
     | GotPasskeyAuthenticationOptions ClientId UserId (Result String ( String, PasskeyAuthenticationOptions ))
     | GotPasskeyAuthenticationResult SessionId ClientId UserId (Result Http.Error ())

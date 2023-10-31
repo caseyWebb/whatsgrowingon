@@ -1,27 +1,71 @@
 "use strict";
 
-const {
-  startRegistration,
-  startAuthentication,
-} = require("@simplewebauthn/browser");
+const { startAuthentication } = require("@simplewebauthn/browser");
 
 exports.init = (app) => {
-  app.ports.registerPasskeyPort.subscribe(async (json) => {
-    const options = JSON.parse(json);
-    const response = await startRegistration(options);
-    co;
+  app.ports.registerPasskeyPort.subscribe(async (options) => {
+    if (typeof window.PublicKeyCredential !== "function") {
+      app.ports.passkeyRegistrationResponsePort.send({
+        error:
+          "Browser does not support passkeys. See https://passkeys.dev/device-support/ for more information",
+      });
+      return;
+    }
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        ...options,
+        challenge: base64ToArrayBuffer(options.challenge),
+        user: {
+          ...options.user,
+          id: base64ToArrayBuffer(options.user.id),
+        },
+        excludeCredentials: options.excludeCredentials.map((c) => ({
+          ...c,
+          id: base64ToArrayBuffer(c.id),
+        })),
+      },
+    });
+
+    debugger;
+
     app.ports.passkeyRegistrationResponsePort.send({
-      username: options.user.name,
-      response: JSON.stringify(response),
+      id: credential.id,
+      type: credential.type,
+      response: {
+        attestationObject: arrayBufferToBase64(
+          credential.response.attestationObject
+        ),
+        clientDataJSON: decodeClientDataJSON(
+          credential.response.clientDataJSON
+        ),
+        publicKey: arrayBufferToBase64(credential.response.getPublicKey()),
+      },
     });
   });
 
   app.ports.authenticatePasskeyPort.subscribe(async (json) => {
-    const options = JSON.parse(json);
-    const response = await startAuthentication(options);
-    debugger;
-    app.ports.passkeyAuthenticationResponsePort.send({
-      response: JSON.stringify(response),
-    });
+    app.ports.passkeyAuthenticationResponsePort.send({});
   });
 };
+
+function base64ToArrayBuffer(str) {
+  str = str.padEnd(str.length + ((4 - (str.length % 4)) % 4), "=");
+  const binary = atob(str);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return buffer;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++)
+    binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function decodeClientDataJSON(clientDataJSON) {
+  return JSON.parse(atob(arrayBufferToBase64(clientDataJSON)));
+}

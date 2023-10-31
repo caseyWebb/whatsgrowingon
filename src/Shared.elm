@@ -17,14 +17,11 @@ import Browser.Dom as Dom
 import Data exposing (..)
 import Data.PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
 import Data.PasskeyAuthenticationResponse exposing (PasskeyAuthenticationResponse)
-import Data.PasskeyRegistrationOptions exposing (PasskeyRegistrationOptions)
-import Data.PasskeyRegistrationResponse exposing (PasskeyRegistrationResponse)
 import Data.Users as Users exposing (Passkey, User, UserId, Username)
 import GenericDict as Dict exposing (Dict)
 import Html.Styled as Html exposing (..)
 import Html.Styled.Attributes as Attrs
 import Html.Styled.Events exposing (onInput)
-import Json.Decode as Decode
 import Maybe.Extra as Maybe
 import Passkey exposing (authenticate, onAuthenticationResponse, onRegistrationResponse, register)
 import Random
@@ -100,7 +97,7 @@ type Msg
     | UpdateZone Bool Zone
     | GotCurrentTime Time.Posix
     | StartSignupFlow String
-    | GotPasskeyRegistrationResponse (Result String ( Username, PasskeyRegistrationResponse ))
+    | GotPasskeyRegistrationResponse (Result String Passkey.RegistrationResponse)
     | StartLoginFlow
     | GotPasskeyAuthenticationResponse (Result String PasskeyAuthenticationResponse)
     | AttemptLogout
@@ -113,7 +110,7 @@ type ToBackend
     | SaveZone Zone
     | DeleteZoneToBackend Slug
     | FetchPasskeyRegistrationOptions String
-    | VerifyPasskeyRegistrationResponse ( Username, PasskeyRegistrationResponse )
+    | VerifyPasskeyRegistrationResponse Passkey.RegistrationResponse
     | FetchPasskeyAuthenticationOptions String
     | VerifyPasskeyAuthenticationResponse PasskeyAuthenticationResponse
     | Logout
@@ -130,7 +127,7 @@ type ToFrontend
         , varieties : Dict Slug Variety
         , currentUser : Maybe User
         }
-    | GotPasskeyRegistrationOptions (Result String PasskeyRegistrationOptions)
+    | GotPasskeyRegistrationOptions Passkey.RegistrationOptions
     | GotPasskeyAuthenticationOptions (Result String PasskeyAuthenticationOptions)
     | Login User
     | LoggedOut
@@ -157,11 +154,7 @@ update ({ toBackend } as config) req msg model =
             )
 
         FromBackend (GotPasskeyRegistrationOptions options) ->
-            ( model
-            , Result.map register options
-                |> Result.mapError Debug.log
-                |> Result.withDefault Cmd.none
-            )
+            ( model, register options )
 
         FromBackend (GotPasskeyAuthenticationOptions options) ->
             ( model

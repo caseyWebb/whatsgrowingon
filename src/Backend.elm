@@ -3,8 +3,6 @@ module Backend exposing (..)
 import Data exposing (..)
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions
 import Data.PasskeyAuthenticationResponse as PasskeyAuthenticationResponse
-import Data.PasskeyRegistrationOptions as PasskeyRegistrationOptions
-import Data.PasskeyRegistrationResponse as PasskeyRegistrationResponse
 import Data.Users as Users exposing (Passkey)
 import GenericDict as Dict
 import Http
@@ -12,6 +10,7 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra as List
+import Passkey
 import Shared
 import Slug
 import Types exposing (..)
@@ -140,17 +139,15 @@ update msg model =
             , Lamdera.sendToFrontend clientId toFrontendMsg
             )
 
-        GotPasskeyRegistrationOptions clientId (Ok ( userId, challenge, passkeyRegistrationOptions )) ->
-            ( { model | passkeyChallenges = Dict.insert identity clientId challenge model.passkeyChallenges }
-            , Cmd.batch
-                [ Lamdera.sendToFrontend clientId
-                    (SharedToFrontend (Shared.GotPasskeyRegistrationOptions (Ok passkeyRegistrationOptions)))
-                ]
-            )
-
-        GotPasskeyRegistrationOptions clientId (Err err) ->
-            ( model
-            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotPasskeyRegistrationOptions (Err err)))
+        GotPasskeyRegistrationOptions clientId opts ->
+            ( { model
+                | passkeyChallenges =
+                    Dict.insert identity
+                        clientId
+                        (Passkey.registrationsOptionsChallenge opts)
+                        model.passkeyChallenges
+              }
+            , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotPasskeyRegistrationOptions opts))
             )
 
         GotPasskeyRegistrationResult sessionId clientId username (Ok passkeyRegistration) ->
@@ -250,77 +247,31 @@ updateFromFrontend sessionId clientId msg model =
                     , Cmd.none
                     )
 
-                Shared.FetchPasskeyRegistrationOptions usernameString ->
+                Shared.FetchPasskeyRegistrationOptions username ->
                     ( model
-                    , Http.get
-                        { url =
-                            "http://localhost:8787/register?"
-                                ++ "rpName="
-                                ++ rpName
-                                ++ "&rpID="
-                                ++ rpID
-                                ++ "&userID="
-                                ++ clientId
-                                ++ "&userName="
-                                ++ usernameString
-                        , expect =
-                            Http.expectString
-                                (Result.mapError
-                                    (\httpError ->
-                                        case httpError of
-                                            _ ->
-                                                "HTTP Error"
-                                    )
-                                    >> (\result ->
-                                            GotPasskeyRegistrationOptions clientId
-                                                (Result.map2
-                                                    (\( challenge, username ) raw -> ( username, challenge, raw ))
-                                                    (Result.andThen
-                                                        (Decode.decodeString
-                                                            (Decode.map2 Tuple.pair
-                                                                (Decode.field "challenge" Decode.string)
-                                                                (Decode.at [ "user", "name" ] Users.usernameDecoder)
-                                                            )
-                                                            >> Result.mapError Decode.errorToString
-                                                        )
-                                                        result
-                                                    )
-                                                    (Result.map PasskeyRegistrationOptions.fromString result)
-                                                )
-                                       )
-                                )
+                    , Passkey.generateRegistrationOptions
+                        { rp =
+                            { name = "whatsgrowingon"
+                            , id = "localhost"
+                            }
+                        , user =
+                            { id = username
+                            , name = username
+                            , displayName = username
+                            }
                         }
+                        [ Passkey.requireUserVerification
+                        ]
+                        (GotPasskeyRegistrationOptions clientId)
                     )
 
-                Shared.VerifyPasskeyRegistrationResponse ( username, passkeyRegistrationResponse ) ->
+                Shared.VerifyPasskeyRegistrationResponse response ->
                     case Dict.get identity clientId model.passkeyChallenges of
                         Nothing ->
                             ( model, Cmd.none )
 
                         Just challenge ->
-                            ( model
-                            , Http.post
-                                { url =
-                                    "http://localhost:8787/register?"
-                                        ++ "challenge="
-                                        ++ challenge
-                                        ++ "&rpID="
-                                        ++ rpID
-                                        ++ "&origin=http://localhost:8000"
-                                , body =
-                                    Http.jsonBody
-                                        (Encode.object
-                                            [ ( "passkey"
-                                              , PasskeyRegistrationResponse.encoder passkeyRegistrationResponse
-                                              )
-                                            ]
-                                        )
-                                , expect =
-                                    Http.expectJson
-                                        (GotPasskeyRegistrationResult sessionId clientId username)
-                                        Users.passkeyDecoder
-                                }
-                            )
+                            Debug.todo ""
 
                 Shared.FetchPasskeyAuthenticationOptions username ->
                     case Users.findByUsername model.users username of
