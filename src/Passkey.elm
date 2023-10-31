@@ -19,6 +19,7 @@ import Bitwise as Bits
 import Bytes exposing (Bytes)
 import Bytes.Decode
 import Bytes.Encode
+import COSE.Decode as COSE
 import Cbor.Decode as Cbor
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
 import Data.PasskeyAuthenticationResponse as PasskeyAuthenticationResponse exposing (PasskeyAuthenticationResponse)
@@ -29,6 +30,7 @@ import List exposing (filterMap)
 import Maybe.Extra as Maybe
 import Random
 import Random.String as Random
+import Tuple.Extra exposing (triple)
 
 
 port registerPasskeyPort : Encode.Value -> Cmd msg
@@ -344,6 +346,12 @@ type alias AttestationObjectAuthData =
         , ed : Bool
         , flags : Int
         }
+    , counter : Int
+    , attestedCredentialData :
+        Maybe
+            { aaguid : Bytes
+            , credentialId : Bytes
+            }
     }
 
 
@@ -370,24 +378,132 @@ type TokenBindingStatus
 registrationResponseDecoder : Decode.Decoder RegistrationResponse
 registrationResponseDecoder =
     let
-        decodeAuthData =
-            Bytes.Decode.decode
-                (Bytes.Decode.map2 AttestationObjectAuthData
-                    (Bytes.Decode.bytes 32)
-                    (Bytes.Decode.unsignedInt8
-                        |> Bytes.Decode.map
-                            (\flags ->
-                                { up = Bits.and flags (1 |> Bits.shiftLeftBy 0) /= 0
-                                , uv = Bits.and flags (1 |> Bits.shiftLeftBy 2) /= 0
-                                , be = Bits.and flags (1 |> Bits.shiftLeftBy 3) /= 0
-                                , bs = Bits.and flags (1 |> Bits.shiftLeftBy 4) /= 0
-                                , at = Bits.and flags (1 |> Bits.shiftLeftBy 6) /= 0
-                                , ed = Bits.and flags (1 |> Bits.shiftLeftBy 7) /= 0
-                                , flags = flags
-                                }
-                            )
+        base64EncodedCborDecoder decoder =
+            Decode.string
+                |> Decode.andThen
+                    (Base64.Decode.decode Base64.Decode.bytes
+                        >> Result.map (Cbor.decode decoder >> Maybe.withDefault (Decode.fail "Failed to decode cbor"))
+                        >> Result.withDefault (Decode.fail "Invalid base64")
+                    )
+
+        attestationObjectDecoder =
+            base64EncodedCborDecoder
+                (Cbor.record Cbor.string
+                    (\fmt attStmt encodedAuthData ->
+                        Maybe.map (AttestationObject fmt attStmt) (Bytes.Decode.decode authDataDecoder encodedAuthData)
+                            |> Maybe.map Decode.succeed
+                            |> Maybe.withDefault (Decode.fail "Error decoding auth data")
+                    )
+                    (Cbor.fields
+                        >> Cbor.field "fmt" Cbor.string
+                        >> Cbor.field "attStmt" (Cbor.record Cbor.string {} Cbor.succeed)
+                        >> Cbor.field "authData" Cbor.bytes
                     )
                 )
+
+        {-
+           https://w3c.github.io/webauthn/#sctn-authenticator-data
+        -}
+        authDataDecoder =
+            Bytes.Decode.map3 triple
+                -- rpIdHash
+                (Bytes.Decode.bytes 32)
+                -- flags
+                (Bytes.Decode.unsignedInt8
+                    |> Bytes.Decode.map
+                        (\flags ->
+                            { up = Bits.and flags (1 |> Bits.shiftLeftBy 0) /= 0
+                            , uv = Bits.and flags (1 |> Bits.shiftLeftBy 2) /= 0
+                            , be = Bits.and flags (1 |> Bits.shiftLeftBy 3) /= 0
+                            , bs = Bits.and flags (1 |> Bits.shiftLeftBy 4) /= 0
+                            , at = Bits.and flags (1 |> Bits.shiftLeftBy 6) /= 0
+                            , ed = Bits.and flags (1 |> Bits.shiftLeftBy 7) /= 0
+                            , flags = flags
+                            }
+                        )
+                )
+                -- counter
+                (Bytes.Decode.unsignedInt32 Bytes.BE)
+                |> Bytes.Decode.andThen
+                    (\( rpIdHash, flags, counter ) ->
+                        if flags.at then
+                            Bytes.Decode.map3
+                                (\aaguid credentialId publicKey ->
+                                    { rpIdHash = rpIdHash
+                                    , flags = flags
+                                    , counter = counter
+                                    , attestedCredentialData =
+                                        Just
+                                            { aaguid = aaguid
+                                            , credentialId = credentialId
+                                            }
+                                    }
+                                )
+                                {-
+                                   https://w3c.github.io/webauthn/#sctn-attested-credential-data
+                                -}
+                                -- aaguid
+                                (Bytes.Decode.bytes 16)
+                                -- credentialIdLength -> credentialId
+                                (Bytes.Decode.unsignedInt16 Bytes.BE)
+                                --
+                                (Bytes.Decode.loop []
+                                    (\bytes ->
+                                        Bytes.Decode.bytes 1
+                                            |> Bytes.Decode.andThen
+                                                (\byte ->
+                                                    if byte == 0 then
+                                                        Bytes.Decode.succeed (List.reverse bytes)
+
+                                                    else
+                                                        Bytes.Decode.succeed (byte :: bytes)
+                                                )
+                                    )
+                                )
+                            -- |> Bytes.Decode.andThen
+                            --     (\credentialIdWidth ->
+                            --         Bytes.Decode.bytes credentialIdWidth
+                            --             |> Bytes.Decode.andThen
+                            --                 (\credentialId ->
+                            --                     Bytes.Decode.bytes (attestedCredentialDataWidth - credentialIdWidth - 22)
+                            --                         |> Bytes.Decode.andThen
+                            --                             (\credentialPublicKey ->
+                            --                                 Bytes.Decode.succeed
+                            --                                     ( credentialId
+                            --                                     , credentialPublicKey
+                            --                                     )
+                            --                             )
+                            --                 )
+                            --     )
+
+                        else
+                            Bytes.Decode.succeed
+                                { rpIdHash = rpIdHash
+                                , flags = flags
+                                , counter = counter
+                                , attestedCredentialData = Nothing
+                                }
+                    )
+
+        -- credentialPublicKeyHelper : List (Byte) -> Decoder (Bytes.Decode.Step (List Byte) (List Byte))
+        -- credentialPublicKeyHelper state =
+        tokenBindingStatusDecoder =
+            Decode.string
+                |> Decode.andThen
+                    (\status ->
+                        case status of
+                            "present" ->
+                                Decode.succeed Present
+
+                            "supported" ->
+                                Decode.succeed Supported
+
+                            "not-supported" ->
+                                Decode.succeed NotSupported
+
+                            _ ->
+                                Decode.fail "Invalid token binding status"
+                    )
     in
     -- These are not 1:1 with the browser API because data has to be encoded
     -- from binary formats to send over ports. Additionally clientDataJSON is
@@ -396,40 +512,7 @@ registrationResponseDecoder =
         Decode.map4 RegistrationResponseInternal
             (Decode.field "id" Decode.string)
             (Decode.field "type" Decode.string)
-            (Decode.at [ "response", "attestationObject" ] <|
-                (Decode.string
-                    |> Decode.andThen
-                        (\base64Str ->
-                            case Base64.Decode.decode Base64.Decode.bytes base64Str of
-                                Ok cborBytes ->
-                                    Cbor.decode
-                                        (Cbor.record Cbor.string
-                                            (\fmt attStmt encodedAuthData ->
-                                                decodeAuthData encodedAuthData
-                                                    |> Maybe.map
-                                                        (\authData ->
-                                                            Decode.succeed
-                                                                { fmt = fmt
-                                                                , attStmt = attStmt
-                                                                , authData = authData
-                                                                }
-                                                        )
-                                                    |> Maybe.withDefault (Decode.fail "Failed to decode auth data")
-                                            )
-                                            (Cbor.fields
-                                                >> Cbor.field "fmt" Cbor.string
-                                                >> Cbor.field "attStmt" (Cbor.record Cbor.string {} Cbor.succeed)
-                                                >> Cbor.field "authData" Cbor.bytes
-                                            )
-                                        )
-                                        cborBytes
-                                        |> Maybe.withDefault (Decode.fail "Failed to decode attestation cbor")
-
-                                Err _ ->
-                                    Decode.fail "Invalid attestation object"
-                        )
-                )
-            )
+            (Decode.at [ "response", "attestationObject" ] attestationObjectDecoder)
             (Decode.at [ "response", "clientDataJSON" ] <|
                 Decode.map4 ClientData
                     (Decode.field "type" Decode.string)
@@ -438,25 +521,7 @@ registrationResponseDecoder =
                     (Decode.maybe <|
                         Decode.field "tokenBinding" <|
                             Decode.map2 TokenBinding
-                                (Decode.field "status"
-                                    (Decode.string
-                                        |> Decode.andThen
-                                            (\status ->
-                                                case status of
-                                                    "present" ->
-                                                        Decode.succeed Present
-
-                                                    "supported" ->
-                                                        Decode.succeed Supported
-
-                                                    "not-supported" ->
-                                                        Decode.succeed NotSupported
-
-                                                    _ ->
-                                                        Decode.fail "Invalid token binding status"
-                                            )
-                                    )
-                                )
+                                (Decode.field "status" tokenBindingStatusDecoder)
                                 (Decode.field "id" Decode.string)
                     )
             )
