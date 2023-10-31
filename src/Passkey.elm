@@ -325,10 +325,8 @@ type alias RegistrationResponseInternal =
 
 type alias AttestationObject =
     { fmt : String
-
-    -- , authData : Bytes
-    -- , authData : AuthData
-    -- , attStmt : String
+    , attStmt : {}
+    , authData : Bytes
     }
 
 
@@ -372,15 +370,8 @@ registrationResponseDecoder =
                                             AttestationObject
                                             (Cbor.fields
                                                 >> Cbor.field "fmt" Cbor.string
-                                             -- >> Cbor.field "attStmt"
-                                             --     (Cbor.record Cbor.string
-                                             --      -- (Cbor.fields
-                                             --      --     >> Cbor.field "sig" Cbor.string
-                                             --      --     >> Cbor.field "x5c"
-                                             --      --         (Cbor.list Cbor.string)
-                                             --      -- )
-                                             --     )
-                                             -- >> Cbor.field "authData" Cbor.bytes
+                                                >> Cbor.field "attStmt" (Cbor.record Cbor.string {} Cbor.succeed)
+                                                >> Cbor.field "authData" Cbor.bytes
                                             )
                                         )
                                         cborBytes

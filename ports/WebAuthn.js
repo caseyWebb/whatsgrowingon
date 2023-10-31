@@ -27,8 +27,6 @@ exports.init = (app) => {
       },
     });
 
-    debugger;
-
     app.ports.passkeyRegistrationResponsePort.send({
       id: credential.id,
       type: credential.type,
