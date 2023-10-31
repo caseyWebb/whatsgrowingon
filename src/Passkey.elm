@@ -15,7 +15,9 @@ port module Passkey exposing
 
 import Base64.Decode
 import Base64.Encode
+import Bitwise as Bits
 import Bytes exposing (Bytes)
+import Bytes.Decode
 import Bytes.Encode
 import Cbor.Decode as Cbor
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
@@ -23,6 +25,7 @@ import Data.PasskeyAuthenticationResponse as PasskeyAuthenticationResponse expos
 import Html.Attributes exposing (type_)
 import Json.Decode as Decode
 import Json.Encode as Encode
+import List exposing (filterMap)
 import Maybe.Extra as Maybe
 import Random
 import Random.String as Random
@@ -326,7 +329,21 @@ type alias RegistrationResponseInternal =
 type alias AttestationObject =
     { fmt : String
     , attStmt : {}
-    , authData : Bytes
+    , authData : AttestationObjectAuthData
+    }
+
+
+type alias AttestationObjectAuthData =
+    { rpIdHash : Bytes
+    , flags :
+        { up : Bool
+        , uv : Bool
+        , be : Bool
+        , bs : Bool
+        , at : Bool
+        , ed : Bool
+        , flags : Int
+        }
     }
 
 
@@ -352,6 +369,26 @@ type TokenBindingStatus
 
 registrationResponseDecoder : Decode.Decoder RegistrationResponse
 registrationResponseDecoder =
+    let
+        decodeAuthData =
+            Bytes.Decode.decode
+                (Bytes.Decode.map2 AttestationObjectAuthData
+                    (Bytes.Decode.bytes 32)
+                    (Bytes.Decode.unsignedInt8
+                        |> Bytes.Decode.map
+                            (\flags ->
+                                { up = Bits.and flags (1 |> Bits.shiftLeftBy 0) /= 0
+                                , uv = Bits.and flags (1 |> Bits.shiftLeftBy 2) /= 0
+                                , be = Bits.and flags (1 |> Bits.shiftLeftBy 3) /= 0
+                                , bs = Bits.and flags (1 |> Bits.shiftLeftBy 4) /= 0
+                                , at = Bits.and flags (1 |> Bits.shiftLeftBy 6) /= 0
+                                , ed = Bits.and flags (1 |> Bits.shiftLeftBy 7) /= 0
+                                , flags = flags
+                                }
+                            )
+                    )
+                )
+    in
     -- These are not 1:1 with the browser API because data has to be encoded
     -- from binary formats to send over ports. Additionally clientDataJSON is
     -- decoded on the Javascript side because... it's easier.
@@ -367,7 +404,18 @@ registrationResponseDecoder =
                                 Ok cborBytes ->
                                     Cbor.decode
                                         (Cbor.record Cbor.string
-                                            AttestationObject
+                                            (\fmt attStmt encodedAuthData ->
+                                                decodeAuthData encodedAuthData
+                                                    |> Maybe.map
+                                                        (\authData ->
+                                                            Decode.succeed
+                                                                { fmt = fmt
+                                                                , attStmt = attStmt
+                                                                , authData = authData
+                                                                }
+                                                        )
+                                                    |> Maybe.withDefault (Decode.fail "Failed to decode auth data")
+                                            )
                                             (Cbor.fields
                                                 >> Cbor.field "fmt" Cbor.string
                                                 >> Cbor.field "attStmt" (Cbor.record Cbor.string {} Cbor.succeed)
@@ -375,7 +423,6 @@ registrationResponseDecoder =
                                             )
                                         )
                                         cborBytes
-                                        |> Maybe.map Decode.succeed
                                         |> Maybe.withDefault (Decode.fail "Failed to decode attestation cbor")
 
                                 Err _ ->
