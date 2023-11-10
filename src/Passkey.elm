@@ -19,14 +19,13 @@ import Bitwise as Bits
 import Bytes exposing (Bytes)
 import Bytes.Decode
 import Bytes.Encode
-import COSE.Decode as COSE
 import Cbor.Decode as Cbor
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
 import Data.PasskeyAuthenticationResponse as PasskeyAuthenticationResponse exposing (PasskeyAuthenticationResponse)
 import Html.Attributes exposing (type_)
 import Json.Decode as Decode
 import Json.Encode as Encode
-import List exposing (filterMap)
+import List
 import Maybe.Extra as Maybe
 import Random
 import Random.String as Random
@@ -445,36 +444,9 @@ registrationResponseDecoder =
                                 -- aaguid
                                 (Bytes.Decode.bytes 16)
                                 -- credentialIdLength -> credentialId
-                                (Bytes.Decode.unsignedInt16 Bytes.BE)
+                                (Bytes.Decode.unsignedInt16 Bytes.BE |> Bytes.Decode.andThen Bytes.Decode.bytes)
                                 --
-                                (Bytes.Decode.loop []
-                                    (\bytes ->
-                                        Bytes.Decode.bytes 1
-                                            |> Bytes.Decode.andThen
-                                                (\byte ->
-                                                    if byte == 0 then
-                                                        Bytes.Decode.succeed (List.reverse bytes)
-
-                                                    else
-                                                        Bytes.Decode.succeed (byte :: bytes)
-                                                )
-                                    )
-                                )
-                            -- |> Bytes.Decode.andThen
-                            --     (\credentialIdWidth ->
-                            --         Bytes.Decode.bytes credentialIdWidth
-                            --             |> Bytes.Decode.andThen
-                            --                 (\credentialId ->
-                            --                     Bytes.Decode.bytes (attestedCredentialDataWidth - credentialIdWidth - 22)
-                            --                         |> Bytes.Decode.andThen
-                            --                             (\credentialPublicKey ->
-                            --                                 Bytes.Decode.succeed
-                            --                                     ( credentialId
-                            --                                     , credentialPublicKey
-                            --                                     )
-                            --                             )
-                            --                 )
-                            --     )
+                                (Debug.todo "Decode public key")
 
                         else
                             Bytes.Decode.succeed
