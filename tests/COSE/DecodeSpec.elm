@@ -17,13 +17,12 @@ suite =
                 let
                     encoded =
                         { keyType = 2
-
-                        -- , algorithm = -7
+                        , algorithm = -7
                         }
                             |> (Cbor.Encode.record Cbor.Encode.int <|
                                     Cbor.Encode.fields
                                         >> Cbor.Encode.field 1 Cbor.Encode.int .keyType
-                                -- >> Cbor.Encode.field 3 Cbor.Encode.int .algorithm
+                                        >> Cbor.Encode.field 3 Cbor.Encode.int .algorithm
                                )
                             |> Cbor.Encode.encode
 

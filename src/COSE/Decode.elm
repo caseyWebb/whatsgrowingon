@@ -48,7 +48,6 @@ decoder =
     in
     Cbor.size
         |> Cbor.andThen (iterate [])
-        |> Cbor.thenIgnore Cbor.break
         |> Cbor.map reduce
         |> Cbor.andThen
             (\result ->
