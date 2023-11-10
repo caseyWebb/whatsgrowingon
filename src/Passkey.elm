@@ -103,12 +103,6 @@ type alias RegistrationOptionsInternal =
         , residentKey : Maybe String
         , userVerification : UserVerification
         }
-
-    -- extensions : {
-    --     appid : String
-    --     appidExclude : String
-    --     uvm : Bool
-    -- }
     }
 
 
@@ -591,11 +585,11 @@ verifyRegistrationResponse :
     -> Result String RegistrationResponse
 verifyRegistrationResponse { expectedOrigin } (RegistrationOptions options) (RegistrationResponse response) =
     let
-        ( hash, clientData ) =
+        ( clientDataHash, clientData ) =
             response.clientData
 
-        authData =
-            response.attestationObject.authData
+        { authData, attStmt } =
+            response.attestationObject
 
         expectedChallenge =
             options.challenge

@@ -7,8 +7,11 @@ import Json.Encode
 
 type Algorithm
     = ES256
-    | ES384
-    | ES512
+
+
+
+-- | ES384
+-- | ES512
 
 
 jsonDecoder : Json.Decode.Decoder Algorithm
@@ -42,12 +45,6 @@ toInt alg =
         ES256 ->
             -7
 
-        ES384 ->
-            -35
-
-        ES512 ->
-            -36
-
 
 fromInt : Int -> Maybe Algorithm
 fromInt alg =
@@ -55,11 +52,9 @@ fromInt alg =
         7 ->
             Just ES256
 
-        35 ->
-            Just ES384
-
-        36 ->
-            Just ES512
-
+        -- 35 ->
+        --     Just ES384
+        -- 36 ->
+        --     Just ES512
         _ ->
             Nothing
