@@ -1,6 +1,7 @@
 module COSE.Decode exposing (decoder)
 
 import COSE exposing (..)
+import COSE.Algorithm as Algorithm exposing (Algorithm)
 import Cbor.Decode as Cbor exposing (Decoder)
 import Dict
 import Result.Extra as Result
@@ -63,7 +64,7 @@ coseProperty ( label, value ) =
             toProp KeyType keyType "kty"
 
         3 ->
-            toProp Algorithm algorithm "alg"
+            toProp Algorithm Algorithm.fromInt "alg"
 
         _ ->
             Err <| "Unexpected COSE property"
@@ -74,16 +75,6 @@ keyType id =
     case id of
         2 ->
             Just EC2
-
-        _ ->
-            Nothing
-
-
-algorithm : Int -> Maybe Algorithm
-algorithm id =
-    case abs id of
-        7 ->
-            Just ES256
 
         _ ->
             Nothing

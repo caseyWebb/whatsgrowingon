@@ -1,6 +1,7 @@
 module COSE.DecodeSpec exposing (suite)
 
 import COSE exposing (..)
+import COSE.Algorithm exposing (Algorithm(..))
 import COSE.Decode exposing (decoder)
 import Cbor exposing (..)
 import Cbor.Decode

@@ -13,13 +13,13 @@ port module Passkey exposing
     , requireUserVerification
     )
 
-import Base64.Decode
-import Base64.Encode
+import Base64
 import Bitwise as Bits
 import Bytes exposing (Bytes)
 import Bytes.Decode
 import Bytes.Encode
 import COSE exposing (CoseKey)
+import COSE.Algorithm as Algorithm exposing (Algorithm)
 import COSE.Decode as COSE
 import Cbor.Decode as Cbor
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
@@ -31,6 +31,7 @@ import List
 import Maybe.Extra as Maybe
 import Random
 import Random.String as Random
+import SHA256
 import Tuple.Extra exposing (triple)
 
 
@@ -85,7 +86,7 @@ type alias RegistrationOptionsInternal =
     , user : User
     , pubKeyCredParams :
         List
-            { alg : Int
+            { alg : Algorithm
             , type_ : String
             }
     , timeout : Int
@@ -100,7 +101,7 @@ type alias RegistrationOptionsInternal =
         { authenticatorAttachment : Maybe String
         , requireResidentKey : Maybe Bool
         , residentKey : Maybe String
-        , userVerification : String
+        , userVerification : UserVerification
         }
 
     -- extensions : {
@@ -109,6 +110,12 @@ type alias RegistrationOptionsInternal =
     --     uvm : Bool
     -- }
     }
+
+
+type UserVerification
+    = Required
+    | Preferred
+    | Discouraged
 
 
 type AttestationType
@@ -134,7 +141,7 @@ type RegistrationOption
     = RegistrationOption (RegistrationOptionsInternal -> RegistrationOptionsInternal)
 
 
-generateRegistrationOptions : { rp : RelyingParty, user : User } -> List RegistrationOption -> (RegistrationOptions -> msg) -> Cmd msg
+generateRegistrationOptions : { rp : RelyingParty, user : User } -> List RegistrationOption -> (Result String RegistrationOptions -> msg) -> Cmd msg
 generateRegistrationOptions { rp, user } optionalSettings onGotRegistrationOptions =
     let
         updateAuthenticatorSelection f options =
@@ -154,7 +161,7 @@ generateRegistrationOptions { rp, user } optionalSettings onGotRegistrationOptio
                     { authenticatorAttachment = Nothing
                     , requireResidentKey = Nothing
                     , residentKey = Just "preferred"
-                    , userVerification = "preferred"
+                    , userVerification = Preferred
                     }
                 }
                 optionalSettings
@@ -183,17 +190,21 @@ generateRegistrationOptions { rp, user } optionalSettings onGotRegistrationOptio
                                 options
                    )
 
-        challengeGenerator : Random.Generator String
+        challengeGenerator : Random.Generator (Maybe String)
         challengeGenerator =
             Random.list 32 (Random.int 0 255 |> Random.map Bytes.Encode.unsignedInt8)
                 |> Random.map
                     (Bytes.Encode.sequence
                         >> Bytes.Encode.encode
-                        >> Base64.Encode.bytes
-                        >> Base64.Encode.encode
+                        >> Base64.fromBytes
                     )
     in
-    Random.generate (buildOptions >> RegistrationOptions >> onGotRegistrationOptions) challengeGenerator
+    Random.generate
+        (Maybe.map (buildOptions >> RegistrationOptions >> Ok)
+            >> Maybe.withDefault (Err "Error generating challenge")
+            >> onGotRegistrationOptions
+        )
+        challengeGenerator
 
 
 requireUserVerification : RegistrationOption
@@ -204,13 +215,13 @@ requireUserVerification =
                 | authenticatorSelection =
                     options.authenticatorSelection
                         |> (\authenticatorSelection ->
-                                { authenticatorSelection | userVerification = "required" }
+                                { authenticatorSelection | userVerification = Required }
                            )
             }
         )
 
 
-allowedAlgorithms : List Int -> RegistrationOption
+allowedAlgorithms : List Algorithm -> RegistrationOption
 allowedAlgorithms algorithms =
     RegistrationOption
         (\options ->
@@ -253,16 +264,29 @@ registrationsOptionsChallenge (RegistrationOptions options) =
 registrationOptionsEncoder : RegistrationOptions -> Encode.Value
 registrationOptionsEncoder (RegistrationOptions options) =
     let
-        attestationTypeEncoder attestationType =
-            case attestationType of
-                None ->
-                    "none"
+        encodeAttestationType attestationType =
+            Encode.string <|
+                case attestationType of
+                    None ->
+                        "none"
 
-                Indirect ->
-                    "indirect"
+                    Indirect ->
+                        "indirect"
 
-                Direct ->
-                    "direct"
+                    Direct ->
+                        "direct"
+
+        encodeUserVerification userVerification =
+            Encode.string <|
+                case userVerification of
+                    Required ->
+                        "required"
+
+                    Preferred ->
+                        "preferred"
+
+                    Discouraged ->
+                        "discouraged"
 
         optionalProperty encoder k maybeV =
             Maybe.cons (Maybe.map (encoder >> Tuple.pair k) maybeV)
@@ -286,14 +310,14 @@ registrationOptionsEncoder (RegistrationOptions options) =
           , Encode.list
                 (\{ alg, type_ } ->
                     Encode.object
-                        [ ( "alg", Encode.int alg )
+                        [ ( "alg", Algorithm.encodeJson alg )
                         , ( "type", Encode.string type_ )
                         ]
                 )
                 options.pubKeyCredParams
           )
         , ( "timeout", Encode.int options.timeout )
-        , ( "attestation", Encode.string (options.attestationType |> attestationTypeEncoder) )
+        , ( "attestation", encodeAttestationType options.attestationType )
         , ( "excludeCredentials"
           , Encode.list
                 (\{ id, type_, transports } ->
@@ -307,7 +331,7 @@ registrationOptionsEncoder (RegistrationOptions options) =
           )
         , ( "authenticatorSelection"
           , Encode.object
-                ([ ( "userVerification", Encode.string options.authenticatorSelection.userVerification )
+                ([ ( "userVerification", encodeUserVerification options.authenticatorSelection.userVerification )
                  ]
                     |> optionalProperty Encode.string "authenticatorAttachment" options.authenticatorSelection.authenticatorAttachment
                     |> optionalProperty Encode.bool "requireResidentKey" options.authenticatorSelection.requireResidentKey
@@ -325,26 +349,37 @@ type alias RegistrationResponseInternal =
     { id : String
     , credentialType : String
     , attestationObject : AttestationObject
-    , clientData : ClientData
+    , clientData : ( SHA256.Digest, ClientData )
     }
 
 
 type alias AttestationObject =
-    { fmt : String
-    , attStmt : {}
+    { attStmt : Maybe AttestationStatement
     , authData : AttestationObjectAuthData
     }
+
+
+type AttestationStatement
+    = Packed { alg : Algorithm, sig : Bytes, x5c : Maybe (List Bytes) }
+
+
+
+-- | TPM
+-- | AndroidKey
+-- | AndroidSafetyNet
+-- | FIDO_U2F
+-- | Apple
 
 
 type alias AttestationObjectAuthData =
     { rpIdHash : Bytes
     , flags :
-        { up : Bool
-        , uv : Bool
-        , be : Bool
-        , bs : Bool
-        , at : Bool
-        , ed : Bool
+        { up : Bool -- User Present
+        , uv : Bool -- User Verified
+        , be : Bool -- Backup Eligible
+        , bs : Bool -- Backup Status
+        , at : Bool -- Attestation Data Included
+        , ed : Bool -- Extension Data Included
         , flags : Int
         }
     , counter : Int
@@ -361,6 +396,7 @@ type alias ClientData =
     { type_ : String
     , challenge : String
     , origin : String
+    , topOrigin : Maybe String
     , tokenBinding : Maybe TokenBinding
     }
 
@@ -383,29 +419,55 @@ registrationResponseDecoder =
         base64EncodedCborDecoder decoder =
             Decode.string
                 |> Decode.andThen
-                    (Base64.Decode.decode Base64.Decode.bytes
-                        >> Result.map (Cbor.decode decoder >> Maybe.withDefault (Decode.fail "Failed to decode cbor"))
-                        >> Result.withDefault (Decode.fail "Invalid base64")
+                    (Base64.fromString
+                        >> Maybe.andThen Base64.toBytes
+                        >> Maybe.map (Cbor.decode decoder >> Maybe.withDefault (Decode.fail "Failed to decode cbor"))
+                        >> Maybe.withDefault (Decode.fail "Invalid base64")
                     )
 
         attestationObjectDecoder =
             base64EncodedCborDecoder
                 (Cbor.record Cbor.string
-                    (\fmt attStmt encodedAuthData ->
-                        Result.map (AttestationObject fmt attStmt)
-                            (Bytes.Decode.decode authDataDecoder encodedAuthData
-                                |> Maybe.withDefault
-                                    (Err "Error decoding auth data")
-                            )
-                            |> Result.map Decode.succeed
-                            |> Result.withDefault (Decode.fail "Error decoding auth data")
+                    (\fmt attStmtBytes authDataBytes ->
+                        let
+                            attStmtResult =
+                                Cbor.decode (attestationStatementDecoder fmt) attStmtBytes
+                                    |> Maybe.withDefault (Err "Failed to decode attestation statement")
+
+                            authDataResult =
+                                Bytes.Decode.decode authDataDecoder authDataBytes
+                                    |> Maybe.withDefault (Err "Failed to decode authData")
+                        in
+                        case Result.map2 AttestationObject attStmtResult authDataResult of
+                            Ok attestationObject ->
+                                Decode.succeed attestationObject
+
+                            Err err ->
+                                Decode.fail err
                     )
                     (Cbor.fields
                         >> Cbor.field "fmt" Cbor.string
-                        >> Cbor.field "attStmt" (Cbor.record Cbor.string {} Cbor.succeed)
+                        >> Cbor.field "attStmt" Cbor.bytes
                         >> Cbor.field "authData" Cbor.bytes
                     )
                 )
+
+        attestationStatementDecoder fmt =
+            case fmt of
+                "packed" ->
+                    Cbor.record Cbor.string
+                        (\alg sig x5c -> Ok (Just (Packed { alg = alg, sig = sig, x5c = x5c })))
+                        (Cbor.fields
+                            >> Cbor.field "alg" Algorithm.cborDecoder
+                            >> Cbor.field "sig" Cbor.bytes
+                            >> Cbor.optionalField "x5c" (Cbor.list Cbor.bytes)
+                        )
+
+                "none" ->
+                    Cbor.succeed (Ok Nothing)
+
+                _ ->
+                    Cbor.succeed (Err "Unsupported attestation format")
 
         {-
            https://w3c.github.io/webauthn/#sctn-authenticator-data
@@ -470,8 +532,6 @@ registrationResponseDecoder =
                                 )
                     )
 
-        -- credentialPublicKeyHelper : List (Byte) -> Decoder (Bytes.Decode.Step (List Byte) (List Byte))
-        -- credentialPublicKeyHelper state =
         tokenBindingStatusDecoder =
             Decode.string
                 |> Decode.andThen
@@ -489,42 +549,100 @@ registrationResponseDecoder =
                             _ ->
                                 Decode.fail "Invalid token binding status"
                     )
+
+        clientDataDecoder =
+            Decode.map5 ClientData
+                (Decode.field "type" Decode.string)
+                (Decode.field "challenge" Decode.string)
+                (Decode.field "origin" Decode.string)
+                (Decode.maybe <| Decode.field "topOrigin" Decode.string)
+                (Decode.maybe <|
+                    Decode.field "tokenBinding" <|
+                        Decode.map2 TokenBinding
+                            (Decode.field "status" tokenBindingStatusDecoder)
+                            (Decode.field "id" Decode.string)
+                )
     in
-    -- These are not 1:1 with the browser API because data has to be encoded
-    -- from binary formats to send over ports. Additionally clientDataJSON is
-    -- decoded on the Javascript side because... it's easier.
+    -- Note: Array Buffers can't be sent through ports, so those are encoded as base64 strings
     Decode.map RegistrationResponse <|
         Decode.map4 RegistrationResponseInternal
             (Decode.field "id" Decode.string)
             (Decode.field "type" Decode.string)
             (Decode.at [ "response", "attestationObject" ] attestationObjectDecoder)
-            (Decode.at [ "response", "clientDataJSON" ] <|
-                Decode.map4 ClientData
-                    (Decode.field "type" Decode.string)
-                    (Decode.field "challenge" Decode.string)
-                    (Decode.field "origin" Decode.string)
-                    (Decode.maybe <|
-                        Decode.field "tokenBinding" <|
-                            Decode.map2 TokenBinding
-                                (Decode.field "status" tokenBindingStatusDecoder)
-                                (Decode.field "id" Decode.string)
-                    )
+            (Decode.at [ "response", "clientDataJSON" ]
+                (Decode.string
+                    |> Decode.andThen
+                        (\json ->
+                            case Decode.decodeString clientDataDecoder json of
+                                Ok clientData ->
+                                    Decode.succeed ( SHA256.fromString json, clientData )
+
+                                Err err ->
+                                    Decode.fail (Decode.errorToString err)
+                        )
+                )
             )
 
 
-verifyRegistrationResponse : RegistrationOptions -> RegistrationResponse -> { expectedOrigin : String } -> Result String ()
-verifyRegistrationResponse (RegistrationOptions options) (RegistrationResponse response) { expectedOrigin } =
+verifyRegistrationResponse :
+    { expectedOrigin : String }
+    -> RegistrationOptions
+    -> RegistrationResponse
+    -> Result String RegistrationResponse
+verifyRegistrationResponse { expectedOrigin } (RegistrationOptions options) (RegistrationResponse response) =
+    let
+        ( hash, clientData ) =
+            response.clientData
+
+        authData =
+            response.attestationObject.authData
+
+        expectedChallenge =
+            options.challenge
+
+        expectedRpIdHash =
+            SHA256.fromString options.rp.id |> SHA256.toBytes
+
+        isPermittedAlgorithm alg =
+            options.pubKeyCredParams
+                |> List.map .alg
+                |> List.member alg
+    in
     if response.credentialType /= "public-key" then
         Err "Invalid credential type"
 
-    else if response.clientData.type_ /= "webauthn.create" then
+    else if clientData.type_ /= "webauthn.create" then
         Err "Invalid client data type"
 
-    else if response.clientData.challenge /= options.challenge then
+    else if clientData.challenge /= expectedChallenge then
         Err "Invalid challenge"
 
-    else if response.clientData.origin /= expectedOrigin then
+    else if clientData.origin /= expectedOrigin then
         Err "Invalid origin"
 
+    else if clientData.topOrigin /= Nothing then
+        Err "Invalid top origin"
+
+    else if authData.rpIdHash /= expectedRpIdHash then
+        Err "Invalid rpIdHash"
+
+    else if not authData.flags.up then
+        Err "User presence is required"
+
+    else if options.authenticatorSelection.userVerification == Required && not authData.flags.uv then
+        Err "User verification is required"
+
+    else if not authData.flags.be && authData.flags.bs then
+        Err "Invalid backup status"
+
+    else if
+        not
+            (authData.attestedCredentialData
+                |> Maybe.map (.publicKey >> .algorithm >> isPermittedAlgorithm)
+                |> Maybe.withDefault True
+            )
+    then
+        Err "Invalid credential algorithm"
+
     else
-        Ok ()
+        Ok (RegistrationResponse response)

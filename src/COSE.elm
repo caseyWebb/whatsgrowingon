@@ -1,14 +1,10 @@
 module COSE exposing (..)
 
+import COSE.Algorithm exposing (Algorithm)
+
 
 type KeyType
     = EC2
-
-
-type Algorithm
-    = ES256
-    | ES384
-    | ES512
 
 
 type alias CoseKey =

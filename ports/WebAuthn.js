@@ -27,6 +27,13 @@ exports.init = (app) => {
       },
     });
 
+    if (!(credential.response instanceof AuthenticatorAttestationResponse)) {
+      app.ports.passkeyRegistrationResponsePort.send({
+        error: "Invalid response from authenticator",
+      });
+      return;
+    }
+
     app.ports.passkeyRegistrationResponsePort.send({
       id: credential.id,
       type: credential.type,
@@ -65,5 +72,5 @@ function arrayBufferToBase64(buffer) {
 }
 
 function decodeClientDataJSON(clientDataJSON) {
-  return JSON.parse(atob(arrayBufferToBase64(clientDataJSON)));
+  return atob(arrayBufferToBase64(clientDataJSON));
 }
