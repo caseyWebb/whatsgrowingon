@@ -2,69 +2,46 @@ module COSE.Decode exposing (decoder)
 
 import COSE exposing (..)
 import Cbor.Decode as Cbor exposing (Decoder)
+import Dict
+import Result.Extra as Result
 
 
-decoder : Decoder (Result (List String) CoseKey)
+decoder : Decoder (Result String CoseKey)
 decoder =
-    let
-        iterate acc i =
-            case i of
-                0 ->
-                    Cbor.succeed acc
+    Cbor.dict Cbor.int Cbor.int
+        |> Cbor.map
+            (Dict.toList
+                >> List.map coseProperty
+                >> Result.combine
+                >> Result.map
+                    (List.foldl
+                        (\property acc ->
+                            case property of
+                                KeyType keyType_ ->
+                                    { acc | keyType = Just keyType_ }
 
-                _ ->
-                    cosePropertyDecoder
-                        |> Cbor.map (\property -> property :: acc)
-                        |> Cbor.andThen (\acc_ -> iterate acc_ (i - 1))
+                                Algorithm algorithm_ ->
+                                    { acc | algorithm = Just algorithm_ }
+                        )
+                        { keyType = Nothing
+                        , algorithm = Nothing
 
-        reduce properties =
-            List.foldl
-                (\property result ->
-                    case ( property, result ) of
-                        ( Ok (KeyType keyType), Ok coseKey ) ->
-                            Ok { coseKey | keyType = Just keyType }
+                        -- , keyId = Nothing
+                        -- , key = Nothing
+                        }
+                    )
+                >> Result.andThen
+                    (\key ->
+                        case ( key.keyType, key.algorithm ) of
+                            ( Just keyType_, Just algorithm_ ) ->
+                                Ok <| CoseKey keyType_ algorithm_
 
-                        ( Ok (Algorithm algorithm), Ok coseKey ) ->
-                            Ok { coseKey | algorithm = Just algorithm }
+                            ( Nothing, _ ) ->
+                                Err "COSE key missing kty property"
 
-                        ( Err err, Err errs ) ->
-                            Err (err :: errs)
-
-                        ( Err err, Ok _ ) ->
-                            Err [ err ]
-
-                        ( _, Err errs ) ->
-                            Err errs
-                )
-                (Ok
-                    { keyType = Nothing
-                    , algorithm = Nothing
-
-                    -- , keyId = Nothing
-                    -- , key = Nothing
-                    }
-                )
-                properties
-    in
-    Cbor.size
-        |> Cbor.andThen (iterate [])
-        |> Cbor.map reduce
-        |> Cbor.andThen
-            (\result ->
-                case result of
-                    Ok coseKey ->
-                        Cbor.succeed
-                            (Maybe.map2 CoseKey
-                                coseKey.keyType
-                                coseKey.algorithm
-                                -- coseKey.keyId
-                                -- coseKey.key
-                                |> Maybe.map Ok
-                                |> Maybe.withDefault (Err [ "Failed to decode COSE key" ])
-                            )
-
-                    Err errs ->
-                        Cbor.succeed (Err errs)
+                            ( _, Nothing ) ->
+                                Err "COSE key missing alg property"
+                    )
             )
 
 
@@ -73,52 +50,40 @@ type CoseProperty
     | Algorithm Algorithm
 
 
-cosePropertyDecoder : Decoder (Result String CoseProperty)
-cosePropertyDecoder =
-    Cbor.int
-        |> Cbor.andThen
-            (\label ->
-                case label of
-                    1 ->
-                        (Cbor.map << Result.map) KeyType keyTypeDecoder
+coseProperty : ( Int, Int ) -> Result String CoseProperty
+coseProperty ( label, value ) =
+    let
+        toProp ctor toValue propName =
+            toValue value
+                |> Maybe.map (Ok << ctor)
+                |> Maybe.withDefault (Err <| "Unexpected COSE " ++ propName)
+    in
+    case label of
+        1 ->
+            toProp KeyType keyType "kty"
 
-                    3 ->
-                        (Cbor.map << Result.map) Algorithm algorithmDecoder
+        3 ->
+            toProp Algorithm algorithm "alg"
 
-                    _ ->
-                        Cbor.succeed (Err <| "Unexpected COSE label" ++ String.fromInt label)
-            )
-
-
-keyTypeDecoder : Decoder (Result String KeyType)
-keyTypeDecoder =
-    Cbor.int
-        |> Cbor.andThen
-            (\label ->
-                case label of
-                    2 ->
-                        Cbor.succeed (Ok EC2)
-
-                    _ ->
-                        Cbor.succeed (Err "Unsupported key type")
-            )
+        _ ->
+            Err <| "Unexpected COSE property"
 
 
-algorithmDecoder : Decoder (Result String Algorithm)
-algorithmDecoder =
-    Cbor.int
-        |> Cbor.andThen
-            (\label ->
-                case label of
-                    1 ->
-                        Cbor.succeed (Ok ES256)
+keyType : Int -> Maybe KeyType
+keyType id =
+    case id of
+        2 ->
+            Just EC2
 
-                    2 ->
-                        Cbor.succeed (Ok ES384)
+        _ ->
+            Nothing
 
-                    3 ->
-                        Cbor.succeed (Ok ES512)
 
-                    _ ->
-                        Cbor.succeed (Err "Unsupported algorithm")
-            )
+algorithm : Int -> Maybe Algorithm
+algorithm id =
+    case abs id of
+        7 ->
+            Just ES256
+
+        _ ->
+            Nothing
