@@ -19,6 +19,7 @@ import Bitwise as Bits
 import Bytes exposing (Bytes)
 import Bytes.Decode
 import Bytes.Encode
+import COSE exposing (CoseKey)
 import COSE.Decode as COSE
 import Cbor.Decode as Cbor
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
@@ -351,6 +352,7 @@ type alias AttestationObjectAuthData =
         Maybe
             { aaguid : Bytes
             , credentialId : Bytes
+            , publicKey : CoseKey
             }
     }
 
@@ -390,9 +392,13 @@ registrationResponseDecoder =
             base64EncodedCborDecoder
                 (Cbor.record Cbor.string
                     (\fmt attStmt encodedAuthData ->
-                        Maybe.map (AttestationObject fmt attStmt) (Bytes.Decode.decode authDataDecoder encodedAuthData)
-                            |> Maybe.map Decode.succeed
-                            |> Maybe.withDefault (Decode.fail "Error decoding auth data")
+                        Result.map (AttestationObject fmt attStmt)
+                            (Bytes.Decode.decode authDataDecoder encodedAuthData
+                                |> Maybe.withDefault
+                                    (Err "Error decoding auth data")
+                            )
+                            |> Result.map Decode.succeed
+                            |> Result.withDefault (Decode.fail "Error decoding auth data")
                     )
                     (Cbor.fields
                         >> Cbor.field "fmt" Cbor.string
@@ -428,16 +434,20 @@ registrationResponseDecoder =
                     (\( rpIdHash, flags, counter ) ->
                         if flags.at then
                             Bytes.Decode.map3
-                                (\aaguid credentialId publicKey ->
-                                    { rpIdHash = rpIdHash
-                                    , flags = flags
-                                    , counter = counter
-                                    , attestedCredentialData =
-                                        Just
-                                            { aaguid = aaguid
-                                            , credentialId = credentialId
+                                (\aaguid credentialId ->
+                                    Result.map
+                                        (\publicKey ->
+                                            { rpIdHash = rpIdHash
+                                            , flags = flags
+                                            , counter = counter
+                                            , attestedCredentialData =
+                                                Just
+                                                    { aaguid = aaguid
+                                                    , credentialId = credentialId
+                                                    , publicKey = publicKey
+                                                    }
                                             }
-                                    }
+                                        )
                                 )
                                 {-
                                    https://w3c.github.io/webauthn/#sctn-attested-credential-data
@@ -451,11 +461,13 @@ registrationResponseDecoder =
 
                         else
                             Bytes.Decode.succeed
-                                { rpIdHash = rpIdHash
-                                , flags = flags
-                                , counter = counter
-                                , attestedCredentialData = Nothing
-                                }
+                                (Ok
+                                    { rpIdHash = rpIdHash
+                                    , flags = flags
+                                    , counter = counter
+                                    , attestedCredentialData = Nothing
+                                    }
+                                )
                     )
 
         -- credentialPublicKeyHelper : List (Byte) -> Decoder (Bytes.Decode.Step (List Byte) (List Byte))
