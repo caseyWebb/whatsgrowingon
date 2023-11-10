@@ -1,68 +1,7 @@
-module COSE.Decode exposing (decode, decoder)
+module COSE.Decode exposing (decoder)
 
-import Bytes exposing (Bytes)
-import Bytes.Decode as Bytes
 import COSE exposing (..)
 import Cbor.Decode as Cbor exposing (Decoder)
-
-
-decode : Bytes -> Result (List String) CoseKey
-decode =
-    Cbor.decode decoder
-        >> Maybe.withDefault (Err [ "Failed to decode COSE key" ])
-
-
-
--- bytesDecoder : Bytes.Decoder (Result (List String) CoseKey)
-
-
-type ReadOperation
-    = ReadPropertyCount Int
-    | ReadBreak
-
-
-type State
-    = ExpectingPropertyCount Int
-    | ReadingProperties Int (List CoseProperty)
-
-
-bytesDecoder =
-    let
-        initialState : state
-        initialState =
-            Debug.todo "initialState"
-
-        loop : state -> Bytes -> Bytes.Step state (Result String state)
-        loop state byte =
-            case state of
-                -- if getting large map size (last iteration), check this byte and combine
-                -- with information from previous bytes to get number of properties to read
-                -- and store that state
-                _ ->
-                    case byte of
-                        -- TODO:
-                        -- if map and is definite size, and size known from just this byte, add
-                        -- property reads to stack
-                        -- _ ->
-                        --   Bytes.Step (updatedState)
-                        --
-                        -- if map and is definite size and size is more than just this byte, add
-                        -- necessary read operations to stack
-                        --
-                        -- if map and is indefinite size, add break to stack
-                        --
-                        _ ->
-                            Bytes.Done (Err "Unexpected error decoding COSE key")
-
-        finalTransform : state -> Result (List String) CoseKey
-        finalTransform =
-            Debug.todo "finalTransform"
-    in
-    Bytes.loop
-        (\state ->
-            Bytes.bytes 1 |> Bytes.map (loop state)
-        )
-        initialState
 
 
 decoder : Decoder (Result (List String) CoseKey)

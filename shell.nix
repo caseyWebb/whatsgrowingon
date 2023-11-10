@@ -36,7 +36,7 @@ in
 pkgs.mkShell {
   buildInputs = [
     pkgs.elmPackages.elm
-    pkgs.elmPackages.elm-test
+    pkgs.elmPackages.elm-test-rs
     pkgs.elmPackages.elm-format
     pkgs.elmPackages.elm-review
     pkgs.elmPackages.elm-spa

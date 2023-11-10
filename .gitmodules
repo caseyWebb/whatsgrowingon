@@ -1,0 +1,3 @@
+[submodule "vendor/elm-toulouse/cbor"]
+	path = vendor/elm-toulouse/cbor
+	url = https://github.com/elm-toulouse/cbor.git

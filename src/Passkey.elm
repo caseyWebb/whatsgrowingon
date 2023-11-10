@@ -19,6 +19,7 @@ import Bitwise as Bits
 import Bytes exposing (Bytes)
 import Bytes.Decode
 import Bytes.Encode
+import COSE.Decode as COSE
 import Cbor.Decode as Cbor
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions exposing (PasskeyAuthenticationOptions)
 import Data.PasskeyAuthenticationResponse as PasskeyAuthenticationResponse exposing (PasskeyAuthenticationResponse)
@@ -445,8 +446,8 @@ registrationResponseDecoder =
                                 (Bytes.Decode.bytes 16)
                                 -- credentialIdLength -> credentialId
                                 (Bytes.Decode.unsignedInt16 Bytes.BE |> Bytes.Decode.andThen Bytes.Decode.bytes)
-                                --
-                                (Debug.todo "Decode public key")
+                                -- publicKey
+                                (Cbor.runDecoder COSE.decoder)
 
                         else
                             Bytes.Decode.succeed
