@@ -1,5 +1,6 @@
 module Backend exposing (..)
 
+import COSE.Algorithm
 import Data exposing (..)
 import Data.PasskeyAuthenticationOptions as PasskeyAuthenticationOptions
 import Data.PasskeyAuthenticationResponse as PasskeyAuthenticationResponse
@@ -139,7 +140,7 @@ update msg model =
             , Lamdera.sendToFrontend clientId toFrontendMsg
             )
 
-        GotPasskeyRegistrationOptions clientId opts ->
+        GotPasskeyRegistrationOptions clientId (Ok opts) ->
             ( { model
                 | passkeyChallenges =
                     Dict.insert identity
@@ -148,6 +149,12 @@ update msg model =
                         model.passkeyChallenges
               }
             , Lamdera.sendToFrontend clientId (SharedToFrontend (Shared.GotPasskeyRegistrationOptions opts))
+            )
+
+        GotPasskeyRegistrationOptions _ (Err _) ->
+            ( model
+              -- @TODO send error to frontend
+            , Cmd.none
             )
 
         GotPasskeyRegistrationResult sessionId clientId username (Ok passkeyRegistration) ->
@@ -255,12 +262,13 @@ updateFromFrontend sessionId clientId msg model =
                             , id = "localhost"
                             }
                         , user =
-                            { id = username
-                            , name = username
+                            { name = username
                             , displayName = username
                             }
                         }
                         [ Passkey.requireUserVerification
+
+                        -- , Passkey.allowedAlgorithms [ COSE.Algorithm.RS256 ]
                         ]
                         (GotPasskeyRegistrationOptions clientId)
                     )

@@ -7,7 +7,7 @@ import Test exposing (..)
 suite : Test
 suite =
     describe "Passkey"
-        [ test "Passkey" <|
+        [ test "Foo" <|
             \_ ->
                 Expect.pass
         ]

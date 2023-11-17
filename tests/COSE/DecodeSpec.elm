@@ -17,8 +17,8 @@ suite =
             \_ ->
                 let
                     encoded =
-                        { keyType = 2
-                        , algorithm = -7
+                        { keyType = 3
+                        , algorithm = -257
                         }
                             |> Cbor.Encode.record Cbor.Encode.int
                                 (Cbor.Encode.fields
@@ -28,7 +28,7 @@ suite =
                             |> Cbor.Encode.encode
 
                     expectedDecodedKey =
-                        CoseKey EC2 ES256
+                        CoseKey RSA RS256
                 in
                 case Cbor.Decode.decode decoder encoded of
                     Just (Ok decoded) ->

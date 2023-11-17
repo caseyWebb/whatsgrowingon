@@ -73,8 +73,8 @@ coseProperty ( label, value ) =
 keyType : Int -> Maybe KeyType
 keyType id =
     case id of
-        2 ->
-            Just EC2
+        3 ->
+            Just RSA
 
         _ ->
             Nothing

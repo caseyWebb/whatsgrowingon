@@ -135,18 +135,31 @@ type RegistrationOption
     = RegistrationOption (RegistrationOptionsInternal -> RegistrationOptionsInternal)
 
 
-generateRegistrationOptions : { rp : RelyingParty, user : User } -> List RegistrationOption -> (Result String RegistrationOptions -> msg) -> Cmd msg
+generateRegistrationOptions :
+    { rp : RelyingParty
+    , user :
+        { name : String
+        , displayName : String
+        }
+    }
+    -> List RegistrationOption
+    -> (Result String RegistrationOptions -> msg)
+    -> Cmd msg
 generateRegistrationOptions { rp, user } optionalSettings onGotRegistrationOptions =
     let
         updateAuthenticatorSelection f options =
             { options | authenticatorSelection = f options.authenticatorSelection }
 
-        buildOptions : String -> RegistrationOptionsInternal
-        buildOptions challenge =
+        buildOptions : ( String, String ) -> RegistrationOptionsInternal
+        buildOptions ( challenge, userId ) =
             List.foldl (\(RegistrationOption f) options -> f options)
                 { challenge = challenge
                 , rp = rp
-                , user = user
+                , user =
+                    { id = userId
+                    , name = user.name
+                    , displayName = user.displayName
+                    }
                 , pubKeyCredParams = []
                 , timeout = 60000
                 , attestationType = None
@@ -192,13 +205,25 @@ generateRegistrationOptions { rp, user } optionalSettings onGotRegistrationOptio
                         >> Bytes.Encode.encode
                         >> Base64.fromBytes
                     )
+
+        userIdGenerator : Random.Generator (Maybe String)
+        userIdGenerator =
+            Random.list 8 (Random.int 0 255 |> Random.map Bytes.Encode.unsignedInt8)
+                |> Random.map
+                    (Bytes.Encode.sequence
+                        >> Bytes.Encode.encode
+                        >> Base64.fromBytes
+                    )
     in
-    Random.generate
-        (Maybe.map (buildOptions >> RegistrationOptions >> Ok)
-            >> Maybe.withDefault (Err "Error generating challenge")
-            >> onGotRegistrationOptions
-        )
+    Random.map2
+        (\challenge userId -> Maybe.map2 Tuple.pair challenge userId)
         challengeGenerator
+        userIdGenerator
+        |> Random.generate
+            (Maybe.map (buildOptions >> RegistrationOptions >> Ok)
+                >> Maybe.withDefault (Err "Error generating challenge and/or user id")
+                >> onGotRegistrationOptions
+            )
 
 
 requireUserVerification : RegistrationOption
@@ -343,13 +368,13 @@ type alias RegistrationResponseInternal =
     { id : String
     , credentialType : String
     , attestationObject : AttestationObject
-    , clientData : ( SHA256.Digest, ClientData )
+    , clientDataJSON : String -- Raw JSON
     }
 
 
 type alias AttestationObject =
-    { attStmt : Maybe AttestationStatement
-    , authData : AttestationObjectAuthData
+    { authData : Bytes
+    , attStmt : Maybe AttestationStatement
     }
 
 
@@ -357,15 +382,7 @@ type AttestationStatement
     = Packed { alg : Algorithm, sig : Bytes, x5c : Maybe (List Bytes) }
 
 
-
--- | TPM
--- | AndroidKey
--- | AndroidSafetyNet
--- | FIDO_U2F
--- | Apple
-
-
-type alias AttestationObjectAuthData =
+type alias AuthenticationData =
     { rpIdHash : Bytes
     , flags :
         { up : Bool -- User Present
@@ -422,17 +439,13 @@ registrationResponseDecoder =
         attestationObjectDecoder =
             base64EncodedCborDecoder
                 (Cbor.record Cbor.string
-                    (\fmt attStmtBytes authDataBytes ->
+                    (\fmt attStmtBytes authData ->
                         let
                             attStmtResult =
                                 Cbor.decode (attestationStatementDecoder fmt) attStmtBytes
                                     |> Maybe.withDefault (Err "Failed to decode attestation statement")
-
-                            authDataResult =
-                                Bytes.Decode.decode authDataDecoder authDataBytes
-                                    |> Maybe.withDefault (Err "Failed to decode authData")
                         in
-                        case Result.map2 AttestationObject attStmtResult authDataResult of
+                        case Result.map (AttestationObject authData) attStmtResult of
                             Ok attestationObject ->
                                 Decode.succeed attestationObject
 
@@ -462,70 +475,21 @@ registrationResponseDecoder =
 
                 _ ->
                     Cbor.succeed (Err "Unsupported attestation format")
+    in
+    -- Note: Array Buffers can't be sent through ports, so those are encoded as base64 strings
+    Decode.map
+        RegistrationResponse
+    <|
+        Decode.map4 RegistrationResponseInternal
+            (Decode.field "id" Decode.string)
+            (Decode.field "type" Decode.string)
+            (Decode.at [ "response", "attestationObject" ] attestationObjectDecoder)
+            (Decode.at [ "response", "clientDataJSON" ] Decode.string)
 
-        {-
-           https://w3c.github.io/webauthn/#sctn-authenticator-data
-        -}
-        authDataDecoder =
-            Bytes.Decode.map3 triple
-                -- rpIdHash
-                (Bytes.Decode.bytes 32)
-                -- flags
-                (Bytes.Decode.unsignedInt8
-                    |> Bytes.Decode.map
-                        (\flags ->
-                            { up = Bits.and flags (1 |> Bits.shiftLeftBy 0) /= 0
-                            , uv = Bits.and flags (1 |> Bits.shiftLeftBy 2) /= 0
-                            , be = Bits.and flags (1 |> Bits.shiftLeftBy 3) /= 0
-                            , bs = Bits.and flags (1 |> Bits.shiftLeftBy 4) /= 0
-                            , at = Bits.and flags (1 |> Bits.shiftLeftBy 6) /= 0
-                            , ed = Bits.and flags (1 |> Bits.shiftLeftBy 7) /= 0
-                            , flags = flags
-                            }
-                        )
-                )
-                -- counter
-                (Bytes.Decode.unsignedInt32 Bytes.BE)
-                |> Bytes.Decode.andThen
-                    (\( rpIdHash, flags, counter ) ->
-                        if flags.at then
-                            Bytes.Decode.map3
-                                (\aaguid credentialId ->
-                                    Result.map
-                                        (\publicKey ->
-                                            { rpIdHash = rpIdHash
-                                            , flags = flags
-                                            , counter = counter
-                                            , attestedCredentialData =
-                                                Just
-                                                    { aaguid = aaguid
-                                                    , credentialId = credentialId
-                                                    , publicKey = publicKey
-                                                    }
-                                            }
-                                        )
-                                )
-                                {-
-                                   https://w3c.github.io/webauthn/#sctn-attested-credential-data
-                                -}
-                                -- aaguid
-                                (Bytes.Decode.bytes 16)
-                                -- credentialIdLength -> credentialId
-                                (Bytes.Decode.unsignedInt16 Bytes.BE |> Bytes.Decode.andThen Bytes.Decode.bytes)
-                                -- publicKey
-                                (Cbor.runDecoder COSE.decoder)
 
-                        else
-                            Bytes.Decode.succeed
-                                (Ok
-                                    { rpIdHash = rpIdHash
-                                    , flags = flags
-                                    , counter = counter
-                                    , attestedCredentialData = Nothing
-                                    }
-                                )
-                    )
-
+clientDataDecoder : Decode.Decoder ClientData
+clientDataDecoder =
+    let
         tokenBindingStatusDecoder =
             Decode.string
                 |> Decode.andThen
@@ -543,38 +507,81 @@ registrationResponseDecoder =
                             _ ->
                                 Decode.fail "Invalid token binding status"
                     )
-
-        clientDataDecoder =
-            Decode.map5 ClientData
-                (Decode.field "type" Decode.string)
-                (Decode.field "challenge" Decode.string)
-                (Decode.field "origin" Decode.string)
-                (Decode.maybe <| Decode.field "topOrigin" Decode.string)
-                (Decode.maybe <|
-                    Decode.field "tokenBinding" <|
-                        Decode.map2 TokenBinding
-                            (Decode.field "status" tokenBindingStatusDecoder)
-                            (Decode.field "id" Decode.string)
-                )
     in
-    -- Note: Array Buffers can't be sent through ports, so those are encoded as base64 strings
-    Decode.map RegistrationResponse <|
-        Decode.map4 RegistrationResponseInternal
-            (Decode.field "id" Decode.string)
-            (Decode.field "type" Decode.string)
-            (Decode.at [ "response", "attestationObject" ] attestationObjectDecoder)
-            (Decode.at [ "response", "clientDataJSON" ]
-                (Decode.string
-                    |> Decode.andThen
-                        (\json ->
-                            case Decode.decodeString clientDataDecoder json of
-                                Ok clientData ->
-                                    Decode.succeed ( SHA256.fromString json, clientData )
+    Decode.map5 ClientData
+        (Decode.field "type" Decode.string)
+        (Decode.field "challenge" Decode.string)
+        (Decode.field "origin" Decode.string)
+        (Decode.maybe <| Decode.field "topOrigin" Decode.string)
+        (Decode.maybe <|
+            Decode.field "tokenBinding" <|
+                Decode.map2 TokenBinding
+                    (Decode.field "status" tokenBindingStatusDecoder)
+                    (Decode.field "id" Decode.string)
+        )
 
-                                Err err ->
-                                    Decode.fail (Decode.errorToString err)
-                        )
+
+{-| <https://w3c.github.io/webauthn/#sctn-authenticator-data>
+-}
+authDataDecoder : Bytes.Decode.Decoder (Result String AuthenticationData)
+authDataDecoder =
+    Bytes.Decode.map3 triple
+        -- rpIdHash
+        (Bytes.Decode.bytes 32)
+        -- flags
+        (Bytes.Decode.unsignedInt8
+            |> Bytes.Decode.map
+                (\flags ->
+                    { up = Bits.and flags (1 |> Bits.shiftLeftBy 0) /= 0
+                    , uv = Bits.and flags (1 |> Bits.shiftLeftBy 2) /= 0
+                    , be = Bits.and flags (1 |> Bits.shiftLeftBy 3) /= 0
+                    , bs = Bits.and flags (1 |> Bits.shiftLeftBy 4) /= 0
+                    , at = Bits.and flags (1 |> Bits.shiftLeftBy 6) /= 0
+                    , ed = Bits.and flags (1 |> Bits.shiftLeftBy 7) /= 0
+                    , flags = flags
+                    }
                 )
+        )
+        -- counter
+        (Bytes.Decode.unsignedInt32 Bytes.BE)
+        |> Bytes.Decode.andThen
+            (\( rpIdHash, flags, counter ) ->
+                if flags.at then
+                    Bytes.Decode.map3
+                        (\aaguid credentialId ->
+                            Result.map
+                                (\publicKey ->
+                                    { rpIdHash = rpIdHash
+                                    , flags = flags
+                                    , counter = counter
+                                    , attestedCredentialData =
+                                        Just
+                                            { aaguid = aaguid
+                                            , credentialId = credentialId
+                                            , publicKey = publicKey
+                                            }
+                                    }
+                                )
+                        )
+                        {-
+                           https://w3c.github.io/webauthn/#sctn-attested-credential-data
+                        -}
+                        -- aaguid
+                        (Bytes.Decode.bytes 16)
+                        -- credentialIdLength -> credentialId
+                        (Bytes.Decode.unsignedInt16 Bytes.BE |> Bytes.Decode.andThen Bytes.Decode.bytes)
+                        -- publicKey
+                        (Cbor.runDecoder COSE.decoder)
+
+                else
+                    Bytes.Decode.succeed
+                        (Ok
+                            { rpIdHash = rpIdHash
+                            , flags = flags
+                            , counter = counter
+                            , attestedCredentialData = Nothing
+                            }
+                        )
             )
 
 
@@ -585,14 +592,16 @@ verifyRegistrationResponse :
     -> Result String RegistrationResponse
 verifyRegistrationResponse { expectedOrigin } (RegistrationOptions options) (RegistrationResponse response) =
     let
-        ( clientDataHash, clientData ) =
-            response.clientData
+        clientDataHash =
+            SHA256.fromString response.clientDataJSON
 
-        { authData, attStmt } =
-            response.attestationObject
+        clientDataResult =
+            Decode.decodeString clientDataDecoder response.clientDataJSON
+                |> Result.mapError Decode.errorToString
 
-        expectedChallenge =
-            options.challenge
+        authDataResult =
+            Bytes.Decode.decode authDataDecoder response.attestationObject.authData
+                |> Maybe.withDefault (Err "Failed to decode auth data")
 
         expectedRpIdHash =
             SHA256.fromString options.rp.id |> SHA256.toBytes
@@ -602,41 +611,50 @@ verifyRegistrationResponse { expectedOrigin } (RegistrationOptions options) (Reg
                 |> List.map .alg
                 |> List.member alg
     in
-    if response.credentialType /= "public-key" then
-        Err "Invalid credential type"
+    Result.map2 Tuple.pair clientDataResult authDataResult
+        |> Result.andThen
+            (\( clientData, authData ) ->
+                if response.credentialType /= "public-key" then
+                    Err "Invalid credential type"
 
-    else if clientData.type_ /= "webauthn.create" then
-        Err "Invalid client data type"
+                else if clientData.type_ /= "webauthn.create" then
+                    Err "Invalid client data type"
 
-    else if clientData.challenge /= expectedChallenge then
-        Err "Invalid challenge"
+                else if clientData.challenge /= options.challenge then
+                    Err "Invalid challenge"
 
-    else if clientData.origin /= expectedOrigin then
-        Err "Invalid origin"
+                else if clientData.origin /= expectedOrigin then
+                    Err "Invalid origin"
 
-    else if clientData.topOrigin /= Nothing then
-        Err "Invalid top origin"
+                else if clientData.topOrigin /= Nothing then
+                    Err "Invalid top origin"
 
-    else if authData.rpIdHash /= expectedRpIdHash then
-        Err "Invalid rpIdHash"
+                else if authData.rpIdHash /= expectedRpIdHash then
+                    Err "Invalid rpIdHash"
 
-    else if not authData.flags.up then
-        Err "User presence is required"
+                else if not authData.flags.up then
+                    Err "User presence is required"
 
-    else if options.authenticatorSelection.userVerification == Required && not authData.flags.uv then
-        Err "User verification is required"
+                else if options.authenticatorSelection.userVerification == Required && not authData.flags.uv then
+                    Err "User verification is required"
 
-    else if not authData.flags.be && authData.flags.bs then
-        Err "Invalid backup status"
+                else if not authData.flags.be && authData.flags.bs then
+                    Err "Invalid backup status"
 
-    else if
-        not
-            (authData.attestedCredentialData
-                |> Maybe.map (.publicKey >> .algorithm >> isPermittedAlgorithm)
-                |> Maybe.withDefault True
+                else if
+                    not
+                        (authData.attestedCredentialData
+                            |> Maybe.map (.publicKey >> .algorithm >> isPermittedAlgorithm)
+                            |> Maybe.withDefault True
+                        )
+                then
+                    Err "Invalid credential algorithm"
+
+                else
+                    case response.attestationObject.attStmt of
+                        Just (Packed { alg, sig, x5c }) ->
+                            Debug.todo ""
+
+                        Nothing ->
+                            Err "Invalid attestation statement"
             )
-    then
-        Err "Invalid credential algorithm"
-
-    else
-        Ok (RegistrationResponse response)

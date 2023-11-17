@@ -48,7 +48,7 @@ type ToBackend
 
 type BackendMsg
     = ToFrontend ClientId ToFrontend
-    | GotPasskeyRegistrationOptions ClientId Passkey.RegistrationOptions
+    | GotPasskeyRegistrationOptions ClientId (Result String Passkey.RegistrationOptions)
     | GotPasskeyRegistrationResult SessionId ClientId Username (Result Http.Error Passkey)
     | GotPasskeyAuthenticationOptions ClientId UserId (Result String ( String, PasskeyAuthenticationOptions ))
     | GotPasskeyAuthenticationResult SessionId ClientId UserId (Result Http.Error ())
